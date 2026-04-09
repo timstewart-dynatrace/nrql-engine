@@ -1,0 +1,16 @@
+export { NRQLCompiler, type CompileResult } from './compiler.js';
+export { NRQLLexer, LexError } from './lexer.js';
+export { NRQLParser, ParseError } from './parser.js';
+export { DQLEmitter } from './emitter.js';
+export { TokenType, type Token } from './tokens.js';
+export type {
+  ASTNode,
+  Condition,
+  Query,
+  SelectItem,
+  FacetItem,
+  TimeseriesClause,
+  LimitClause,
+  OrderByClause,
+  JoinClause,
+} from './ast-nodes.js';

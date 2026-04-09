@@ -39,12 +39,23 @@ type Condition =
 
 ### Result Types
 ```typescript
+interface TranslationNotes {
+  dataSourceMapping: string[];
+  fieldExtraction: string[];
+  keyDifferences: string[];
+  performanceConsiderations: string[];
+  dataModelRequirements: string[];
+  testingRecommendations: string[];
+}
+
 interface CompileResult {
   success: boolean;
   dql: string;
   confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  confidenceScore: number; // 0-100, computed from warnings/complexity
   warnings: string[];
   fixes: string[];
+  notes: TranslationNotes; // categorized warnings for human review
   error?: string;
   originalNrql: string;
 }

@@ -1,0 +1,247 @@
+/**
+ * NRQL-to-DQL Compiler — Compiler orchestrator.
+ *
+ * Orchestrates: Lexer -> Parser -> DQLEmitter
+ * Handles errors gracefully and provides diagnostic info.
+ */
+
+import type { Query } from './ast-nodes.js';
+import { DQLEmitter, type MetricResolver, type MetricTransform } from './emitter.js';
+import { LexError, NRQLLexer } from './lexer.js';
+import { NRQLParser, ParseError } from './parser.js';
+
+export interface CompileResult {
+  readonly success: boolean;
+  readonly dql: string;
+  readonly confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  readonly warnings: string[];
+  readonly fixes: string[];
+  readonly error: string;
+  readonly ast: Query | undefined;
+  readonly originalNrql: string;
+}
+
+export class NRQLCompiler {
+  private readonly fieldMap: Record<string, string>;
+  private readonly metricMap: Record<string, string>;
+  private readonly metricTransforms: Record<string, MetricTransform>;
+  private readonly metricResolver: MetricResolver | undefined;
+
+  constructor(options?: {
+    fieldMap?: Record<string, string>;
+    metricMap?: Record<string, string>;
+    metricTransforms?: Record<string, MetricTransform>;
+    metricResolver?: MetricResolver;
+  }) {
+    this.fieldMap = options?.fieldMap ?? {};
+    this.metricMap = options?.metricMap ?? {};
+    this.metricTransforms = options?.metricTransforms ?? {};
+    this.metricResolver = options?.metricResolver;
+  }
+
+  compile(nrql: string, _title = ''): CompileResult {
+    const result: {
+      success: boolean;
+      dql: string;
+      confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+      warnings: string[];
+      fixes: string[];
+      error: string;
+      ast: Query | undefined;
+      originalNrql: string;
+    } = {
+      success: false,
+      dql: '',
+      confidence: 'HIGH',
+      warnings: [],
+      fixes: [],
+      error: '',
+      ast: undefined,
+      originalNrql: nrql,
+    };
+
+    // Phase 0: Expand NR shorthand metrics before lexing
+    nrql = NRQLCompiler.expandNrShorthands(nrql);
+
+    // Phase 1: Lex
+    let tokens;
+    try {
+      const lexer = new NRQLLexer(nrql);
+      tokens = lexer.tokenize();
+    } catch (e) {
+      if (e instanceof LexError) {
+        result.error = `Lexer error: ${e.message}`;
+        return result;
+      }
+      throw e;
+    }
+
+    // Phase 2: Parse
+    let ast: Query;
+    try {
+      const parser = new NRQLParser(tokens);
+      ast = parser.parse();
+      result.ast = ast;
+    } catch (e) {
+      if (e instanceof ParseError) {
+        result.error = `Parse error: ${e.message}`;
+        return result;
+      }
+      throw e;
+    }
+
+    // Phase 3: Emit DQL
+    try {
+      const emitter = new DQLEmitter(
+        this.fieldMap,
+        this.metricMap,
+        this.metricTransforms,
+        this.metricResolver,
+      );
+      let dql = emitter.emit(ast);
+      // Collapse NRQL to single line so the comment never leaks raw code
+      const nrqlOneline = nrql.split(/\s+/).join(' ').trim();
+      result.dql = `// Original NRQL: ${nrqlOneline}\n${dql}`;
+      result.warnings = emitter.warnings;
+      result.success = true;
+      result.confidence = 'HIGH';
+
+      // Downgrade confidence if there are warnings
+      if (result.warnings.some(w => w.includes('not directly supported'))) {
+        result.confidence = 'MEDIUM';
+      }
+    } catch (e) {
+      result.error = `Emitter error: ${e instanceof Error ? e.message : String(e)}`;
+      return result;
+    }
+
+    // Phase 4: DQL Syntax Validation
+    const [validatedDql, validationFixes] = this.validateDql(result.dql);
+    result.dql = validatedDql;
+    if (validationFixes.length > 0) {
+      result.fixes = [...result.fixes, ...validationFixes];
+    }
+
+    return result;
+  }
+
+  static expandNrShorthands(nrql: string): string {
+    const shorthands: [RegExp, string][] = [
+      [/\baverage[Dd]uration\b/g, 'average(duration)'],
+      [/\baverage[Rr]esponse[Tt]ime\b/g, 'average(duration)'],
+      [/\bmax[Dd]uration\b/g, 'max(duration)'],
+      [/\bmin[Dd]uration\b/g, 'min(duration)'],
+      [/\bmedian[Dd]uration\b/g, 'median(duration)'],
+      [/\bapdex[Ss]core\b/g, 'apdex(duration)'],
+      [/\bapdex[Pp]erf[Zz]one\b/g, 'apdex(duration)'],
+      [/\berror[Rr]ate\b/g, 'percentage(count(*), WHERE error IS TRUE)'],
+      [/\bthroughput\b/g, 'rate(count(*), 1 minute)'],
+    ];
+
+    for (const [pattern, replacement] of shorthands) {
+      nrql = nrql.replace(pattern, replacement);
+    }
+
+    return nrql;
+  }
+
+  static msToDurationLiteral(ms: number): string {
+    if (ms <= 0) return '0s';
+    if (ms >= 86_400_000 && ms % 86_400_000 === 0) return `${ms / 86_400_000}d`;
+    if (ms >= 3_600_000 && ms % 3_600_000 === 0) return `${ms / 3_600_000}h`;
+    if (ms >= 60_000 && ms % 60_000 === 0) return `${ms / 60_000}m`;
+    if (ms >= 1000 && ms % 1000 === 0) return `${ms / 1000}s`;
+    if (ms === Math.floor(ms)) return `${ms}ms`;
+    const us = ms * 1000;
+    if (us === Math.floor(us)) return `${us}us`;
+    return `${ms}ms`;
+  }
+
+  private validateDql(dql: string): [string, string[]] {
+    const fixes: string[] = [];
+    const lines = dql.split('\n');
+    const newLines: string[] = [];
+
+    const fullDql = lines.join('\n');
+    const isSpanQuery = fullDql.includes('fetch spans');
+
+    for (let line of lines) {
+      const stripped = line.trim();
+
+      // Skip comments
+      if (stripped.startsWith('//')) {
+        newLines.push(line);
+        continue;
+      }
+
+      // Check 1: shift: on makeTimeseries (invalid)
+      if (line.includes('| makeTimeseries') && line.includes('shift:')) {
+        const fixed = line.replace(/,\s*shift:[^\s,]+/, '');
+        if (fixed !== line) {
+          fixes.push('Removed invalid shift: from makeTimeseries (only timeseries command supports shift:)');
+          line = fixed;
+        }
+      }
+
+      // Check 2: Bare fields in summarize/makeTimeseries
+      const m = line.match(/^(\s*\|\s*(?:summarize|makeTimeseries)\s+)(.*)/);
+      if (m) {
+        const aggPart = m[2]!;
+        if (aggPart && !/[a-zA-Z_]\w*\s*\(/.test(aggPart)) {
+          const fields = aggPart.split(',');
+          const fieldNames: string[] = [];
+          for (const f of fields) {
+            const trimmed = f.trim();
+            if (!trimmed.startsWith('by:')) {
+              fieldNames.push(trimmed);
+            }
+          }
+          if (fieldNames.length > 0) {
+            line = `| fields ${fieldNames.join(', ')}`;
+            fixes.push(`Corrected bare fields in summarize -> | fields ('${fieldNames.join(', ')}' are not aggregations)`);
+          }
+        }
+      }
+
+      // Check 3: Duration unit conversion (NR ms -> DT duration literals)
+      if (isSpanQuery) {
+        line = line.replace(
+          /(?<![.\w])duration\s*(>=|<=|>|<|==|!=)\s*(\d+(?:\.\d+)?)/g,
+          (_match, op: string, valStr: string) => {
+            const ms = parseFloat(valStr);
+            const lit = NRQLCompiler.msToDurationLiteral(ms);
+            fixes.push(`Duration: ${valStr}ms -> ${lit}`);
+            return `duration ${op} ${lit}`;
+          },
+        );
+
+        line = line.replace(
+          /bin\(\s*duration\s*,\s*(\d+(?:\.\d+)?)\s*\)/g,
+          (_match, valStr: string) => {
+            const ms = parseFloat(valStr);
+            const lit = NRQLCompiler.msToDurationLiteral(ms);
+            fixes.push(`Duration bin: ${ms}ms -> ${lit}`);
+            return `bin(duration, ${lit})`;
+          },
+        );
+      }
+
+      newLines.push(line);
+    }
+
+    return [newLines.join('\n'), fixes];
+  }
+
+  parseOnly(nrql: string): [Query | undefined, string] {
+    try {
+      const tokens = new NRQLLexer(nrql).tokenize();
+      const ast = new NRQLParser(tokens).parse();
+      return [ast, ''];
+    } catch (e) {
+      if (e instanceof LexError || e instanceof ParseError) {
+        return [undefined, e.message];
+      }
+      throw e;
+    }
+  }
+}
