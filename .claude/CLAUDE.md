@@ -1,8 +1,10 @@
-# DMA NewRelic — TypeScript Migration Tool
+# DMA NewRelic — NRQL Engine (Shared Library)
 
 ## Project Goal
 
-Port the Python NR-to-DT migration tool from `/Users/Shared/GitHub/Dynatrace-NewRelic/` to TypeScript. The Python project (v1.2.0) is the **specification** — match its architecture, features, and test coverage.
+Shared TypeScript engine for NR-to-DT migration. Consumed by front-end apps like nrql-translator. No CLI or exporters — those live in consuming projects.
+
+Ported from the Python NR-to-DT migration tool at `/Users/Shared/GitHub/Dynatrace-NewRelic/` (v1.2.0).
 
 ## Source Project Reference
 
@@ -49,22 +51,24 @@ src/
 ├── validators/                 # DQL syntax validator + auto-fixer
 ├── registry/                   # Live DT environment validation
 ├── migration/                  # State management + reports
-├── exporters/                  # Monaco + Terraform
-├── config/                     # Settings
+├── config/                     # Settings (zod + dotenv)
 └── utils/                      # Logging, auth, helpers
 ```
 
-## Porting Order (do one at a time, with tests)
+## Module Status (all complete)
 
-1. **Compiler** — tokens, lexer, AST nodes, parser, emitter, compiler. This is the core with no external deps. Port the 292 test patterns.
-2. **Validators** — DQL validator + fixer. Uses regex only.
-3. **Transformers** — Start with types.ts (shared result interfaces), then port each transformer.
-4. **Clients** — NR + DT API clients with axios.
-5. **Config** — Settings with zod + dotenv.
-6. **CLI** — Commander commands.
-7. **Registry** — DTEnvironmentRegistry + SLO auditor.
-8. **Migration** — State, reports, retry, diff.
-9. **Exporters** — Monaco + Terraform.
+| # | Module | Tests | Status |
+|---|--------|-------|--------|
+| 1 | Compiler (lexer, parser, emitter, orchestrator) | 292 | Done |
+| 2 | Validators (DQL syntax validator + auto-fixer) | 94 | Done |
+| 3 | Transformers (10 entities + converters) | 157 | Done |
+| 4 | Clients (NR NerdGraph + DT API) | 58 | Done |
+| 5 | Config (zod schemas + settings) | 19 | Done |
+| 6 | Registry (DTEnvironmentRegistry + SLO auditor) | 26 | Done |
+| 7 | Migration (state, checkpoint, retry, diff) | 31 | Done |
+| | **Total** | **677** | |
+
+**Not ported (by design — front-ends own these):** CLI, Exporters, Reports.
 
 ## TypeScript Conventions
 
