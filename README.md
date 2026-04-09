@@ -1,4 +1,4 @@
-# DMA NewRelic — Dynatrace Migration Assistant
+# DMA NewRelic — NRQL Engine
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
@@ -6,47 +6,121 @@
 
 > **Disclaimer:** This project is not officially supported by Dynatrace. Community use only.
 
-A TypeScript migration framework for converting New Relic monitoring configurations to Dynatrace. Includes an AST-based NRQL-to-DQL compiler.
+A shared TypeScript engine for converting New Relic monitoring configurations to Dynatrace. Designed to be consumed by front-end applications like [nrql-translator](https://github.com/timstewart-dynatrace/nrql-translator).
 
-## Quick Start
+## What This Is
+
+This is a **library/engine**, not a standalone application. It provides:
+
+- **AST-based NRQL-to-DQL compiler** (292 tested patterns)
+- **DQL syntax validator and auto-fixer**
+- **10 entity transformers** (dashboards, alerts, synthetics, SLOs, etc.)
+- **API clients** for New Relic NerdGraph and Dynatrace APIs
+- **Live DT environment registry** with metric/entity/dashboard lookups
+- **Migration state management** (checkpoint, retry, diff, rollback)
+
+Front-ends (CLI, web UI, Dynatrace app) are provided by consuming projects.
+
+## Usage
+
+```typescript
+import { NRQLCompiler } from '@bhdynatrace/nrql-engine';
+
+const compiler = new NRQLCompiler();
+const result = compiler.compile("SELECT count(*) FROM Transaction WHERE appName = 'my-api' TIMESERIES");
+
+console.log(result.dql);
+// // Original NRQL: SELECT count(*) FROM Transaction WHERE appName = 'my-api' TIMESERIES
+// fetch spans
+// | filter service.name == "my-api"
+// | makeTimeseries count()
+
+console.log(result.confidence);     // 'HIGH'
+console.log(result.confidenceScore); // 100
+console.log(result.notes);          // { dataSourceMapping: [...], ... }
+```
+
+## Installation
 
 ```bash
 npm install
-cp .env.example .env  # Edit with your credentials
+cp .env.example .env  # Edit with your API credentials (for clients/registry)
+```
 
-# Compile a single NRQL query
-npx dma compile "SELECT count(*) FROM Transaction"
+## Development
 
-# Interactive REPL
-npx dma compile --interactive
-
-# Full migration (dry run)
-npx dma migrate --dry-run
+```bash
+npm test              # Run all 677 tests
+npm run typecheck     # Type-check with tsc
+npm run test:watch    # Watch mode
+npm run test:coverage # Coverage report
 ```
 
 ## Architecture
 
 ```
-Export (NR NerdGraph) → Transform (10 transformers) → Import (DT APIs)
-                                                    → Export (Monaco / Terraform)
+NRQL string → Lexer → Parser → AST → DQL Emitter → DQL string
+                                  ↓
+                            Validators (syntax check + auto-fix)
 
-NRQL Compiler: NRQL → Lexer → Parser → AST → Emitter → DQL
+NR NerdGraph API → 10 Transformers → DT API clients
+                                   → Migration state (checkpoint, retry, diff)
+                                   → DT Environment Registry (live validation)
 ```
 
-## Status
+## Modules
 
-TypeScript port of [Dynatrace-NewRelic](https://github.com/timstewart-dynatrace/Dynatrace-NewRelic) (Python v1.2.0).
+| Module | Description | Tests |
+|--------|-------------|-------|
+| `compiler/` | NRQL-to-DQL AST compiler (lexer, parser, emitter) | 292 |
+| `validators/` | DQL syntax validator + auto-fixer | 94 |
+| `transformers/` | 10 entity transformers + RegexToDPL converter | 157 |
+| `clients/` | NR NerdGraph + DT API clients (axios) | 58 |
+| `config/` | Settings with zod + dotenv | 19 |
+| `registry/` | DTEnvironmentRegistry + SLO auditor | 26 |
+| `migration/` | State, checkpoint, retry, diff | 31 |
+| **Total** | | **677** |
 
-| Module | Status |
-|--------|--------|
-| Compiler (292 patterns) | Pending |
-| Validators | Pending |
-| Transformers (10) | Pending |
-| Clients (NR + DT) | Pending |
-| Registry | Pending |
-| Migration infra | Pending |
-| Exporters (Monaco + TF) | Pending |
-| CLI | Pending |
+## Entity Transformers
+
+| New Relic | Dynatrace | Transformer |
+|-----------|-----------|-------------|
+| Dashboard | Dashboard | `DashboardTransformer` |
+| Alert Policy | Alerting Profile + Metric Event | `AlertTransformer` |
+| Notification Channel | Problem Notification | `NotificationTransformer` |
+| Synthetic Monitor | HTTP/Browser Monitor | `SyntheticTransformer` |
+| SLO | SLO | `SLOTransformer` |
+| Workload | Management Zone | `WorkloadTransformer` |
+| Infra Condition | Metric Event | `InfrastructureTransformer` |
+| Log Parsing Rule | Processing Rule | `LogParsingTransformer` |
+| Tags | Auto-Tag Rules | `TagTransformer` |
+| Drop Rules | Ingest Rules | `DropRuleTransformer` |
+
+## CompileResult Interface
+
+```typescript
+interface CompileResult {
+  success: boolean;
+  dql: string;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  confidenceScore: number;       // 0-100
+  warnings: string[];
+  fixes: string[];
+  notes: TranslationNotes;       // Categorized for human review
+  error: string;
+  ast: Query | undefined;
+  originalNrql: string;
+}
+
+interface TranslationNotes {
+  dataSourceMapping: string[];
+  fieldExtraction: string[];
+  keyDifferences: string[];
+  performanceConsiderations: string[];
+  dataModelRequirements: string[];
+  testingRecommendations: string[];
+}
+```
 
 ## License
 

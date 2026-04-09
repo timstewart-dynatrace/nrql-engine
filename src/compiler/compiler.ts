@@ -10,12 +10,23 @@ import { DQLEmitter, type MetricResolver, type MetricTransform } from './emitter
 import { LexError, NRQLLexer } from './lexer.js';
 import { NRQLParser, ParseError } from './parser.js';
 
+export interface TranslationNotes {
+  readonly dataSourceMapping: string[];
+  readonly fieldExtraction: string[];
+  readonly keyDifferences: string[];
+  readonly performanceConsiderations: string[];
+  readonly dataModelRequirements: string[];
+  readonly testingRecommendations: string[];
+}
+
 export interface CompileResult {
   readonly success: boolean;
   readonly dql: string;
   readonly confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  readonly confidenceScore: number;
   readonly warnings: string[];
   readonly fixes: string[];
+  readonly notes: TranslationNotes;
   readonly error: string;
   readonly ast: Query | undefined;
   readonly originalNrql: string;
@@ -44,8 +55,10 @@ export class NRQLCompiler {
       success: boolean;
       dql: string;
       confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+      confidenceScore: number;
       warnings: string[];
       fixes: string[];
+      notes: TranslationNotes;
       error: string;
       ast: Query | undefined;
       originalNrql: string;
@@ -53,8 +66,10 @@ export class NRQLCompiler {
       success: false,
       dql: '',
       confidence: 'HIGH',
+      confidenceScore: 100,
       warnings: [],
       fixes: [],
+      notes: emptyNotes(),
       error: '',
       ast: undefined,
       originalNrql: nrql,
@@ -121,6 +136,12 @@ export class NRQLCompiler {
     if (validationFixes.length > 0) {
       result.fixes = [...result.fixes, ...validationFixes];
     }
+
+    // Phase 5: Compute TranslationNotes and confidence score
+    result.notes = buildNotes(result.warnings, result.dql, ast);
+    const { confidence, score } = computeConfidence(result.warnings, result.fixes);
+    result.confidence = confidence;
+    result.confidenceScore = score;
 
     return result;
   }
@@ -244,4 +265,111 @@ export class NRQLCompiler {
       throw e;
     }
   }
+}
+
+// -- Helper functions for TranslationNotes and confidence scoring --
+
+function emptyNotes(): TranslationNotes {
+  return {
+    dataSourceMapping: [],
+    fieldExtraction: [],
+    keyDifferences: [],
+    performanceConsiderations: [],
+    dataModelRequirements: [],
+    testingRecommendations: [],
+  };
+}
+
+function buildNotes(warnings: string[], dql: string, ast: Query): TranslationNotes {
+  const notes = emptyNotes();
+  const mutableNotes = notes as {
+    dataSourceMapping: string[];
+    fieldExtraction: string[];
+    keyDifferences: string[];
+    performanceConsiderations: string[];
+    dataModelRequirements: string[];
+    testingRecommendations: string[];
+  };
+
+  // Data source mapping
+  if (dql.includes('fetch spans')) {
+    mutableNotes.dataSourceMapping.push('NR Transaction/Span -> DT Grail spans (distributed traces)');
+  } else if (dql.includes('fetch logs')) {
+    mutableNotes.dataSourceMapping.push('NR Log/LogEvent -> DT Grail logs');
+  } else if (dql.includes('fetch bizevents')) {
+    mutableNotes.dataSourceMapping.push('NR PageView/BrowserInteraction -> DT business events');
+  } else if (dql.includes('fetch events')) {
+    mutableNotes.dataSourceMapping.push('NR InfrastructureEvent -> DT events');
+  } else if (dql.includes('timeseries')) {
+    mutableNotes.dataSourceMapping.push('NR Metric/SystemSample -> DT metric timeseries');
+  }
+
+  // Key differences from warnings
+  for (const w of warnings) {
+    if (w.includes('rate()') || w.includes('not directly supported')) {
+      mutableNotes.keyDifferences.push(w);
+    } else if (w.includes('EXTRAPOLATE') || w.includes('full fidelity')) {
+      mutableNotes.keyDifferences.push('DT stores full-fidelity data — no sampling/extrapolation needed');
+    } else if (w.includes('COMPARE WITH')) {
+      mutableNotes.keyDifferences.push(w);
+    } else if (w.includes('apdex') || w.includes('decomposed')) {
+      mutableNotes.keyDifferences.push(w);
+    } else if (w.includes('Unknown metric') || w.includes('no METRIC_MAP')) {
+      mutableNotes.dataModelRequirements.push(w);
+    } else if (w.includes('NESTED AGGREGATION')) {
+      mutableNotes.performanceConsiderations.push(w);
+    }
+  }
+
+  // Testing recommendations based on query complexity
+  if (ast.joinClause) {
+    mutableNotes.testingRecommendations.push('Verify lookup join returns expected matches — DQL lookup semantics differ from SQL JOIN');
+  }
+  if (ast.timeseries) {
+    mutableNotes.testingRecommendations.push('Compare timeseries chart shape with original NR dashboard');
+  }
+  if (ast.facetItems && ast.facetItems.length > 0) {
+    mutableNotes.testingRecommendations.push('Verify FACET grouping produces same cardinality as NR');
+  }
+
+  return notes;
+}
+
+function computeConfidence(
+  warnings: string[],
+  fixes: string[],
+): { confidence: 'HIGH' | 'MEDIUM' | 'LOW'; score: number } {
+  let score = 100;
+
+  // Each warning costs points
+  for (const w of warnings) {
+    if (w.includes('not directly supported') || w.includes('no DQL equivalent')) {
+      score -= 15;
+    } else if (w.includes('NESTED AGGREGATION')) {
+      score -= 20;
+    } else if (w.includes('Unknown metric') || w.includes('no METRIC_MAP')) {
+      score -= 10;
+    } else if (w.includes('manual')) {
+      score -= 10;
+    } else {
+      score -= 5;
+    }
+  }
+
+  // Fixes applied are minor deductions (auto-corrected)
+  score -= fixes.length * 2;
+
+  // Clamp
+  score = Math.max(0, Math.min(100, score));
+
+  let confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  if (score >= 80) {
+    confidence = 'HIGH';
+  } else if (score >= 50) {
+    confidence = 'MEDIUM';
+  } else {
+    confidence = 'LOW';
+  }
+
+  return { confidence, score };
 }

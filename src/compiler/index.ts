@@ -1,4 +1,4 @@
-export { NRQLCompiler, type CompileResult } from './compiler.js';
+export { NRQLCompiler, type CompileResult, type TranslationNotes } from './compiler.js';
 export { NRQLLexer, LexError } from './lexer.js';
 export { NRQLParser, ParseError } from './parser.js';
 export { DQLEmitter } from './emitter.js';
