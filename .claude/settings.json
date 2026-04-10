@@ -1,0 +1,28 @@
+{
+  "projectName": "nrql-engine",
+  "projectType": "typescript-library",
+  "version": "0.1.0",
+  "description": "Shared NRQL-to-DQL engine — AST compiler, validators, transformers, API clients",
+
+  "repository": {
+    "owner": "timstewart-dynatrace",
+    "name": "nrql-engine",
+    "url": "https://github.com/timstewart-dynatrace/nrql-engine"
+  },
+
+  "standards": {
+    "semanticVersioning": true,
+    "branchingStrategy": "feature/fix",
+    "requiresDocumentation": true,
+    "requiresTests": true,
+    "requiresChangeLog": true
+  },
+
+  "minimumCodeQuality": {
+    "typeHints": true,
+    "docstrings": false,
+    "linting": true,
+    "testing": true,
+    "coverage": 80
+  }
+}
