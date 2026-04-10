@@ -1,5 +1,5 @@
 {
-  "name": "@bhdynatrace/nrql-engine",
+  "name": "@timstewart-dynatrace/nrql-engine",
   "version": "0.1.0",
   "description": "Shared NRQL-to-DQL engine — AST compiler, validators, transformers, API clients",
   "type": "module",
