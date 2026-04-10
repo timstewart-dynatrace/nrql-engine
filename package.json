@@ -1,10 +1,28 @@
 {
   "name": "@timstewart-dynatrace/nrql-engine",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Shared NRQL-to-DQL engine — AST compiler, validators, transformers, API clients",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./compiler": {
+      "types": "./dist/compiler/index.d.ts",
+      "default": "./dist/compiler/index.js"
+    },
+    "./validators": {
+      "types": "./dist/validators/index.d.ts",
+      "default": "./dist/validators/index.js"
+    },
+    "./transformers": {
+      "types": "./dist/transformers/index.d.ts",
+      "default": "./dist/transformers/index.js"
+    }
+  },
   "files": [
     "dist"
   ],

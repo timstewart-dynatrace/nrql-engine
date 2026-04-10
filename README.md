@@ -24,8 +24,16 @@ Front-ends (CLI, web UI, Dynatrace app) are provided by consuming projects.
 ## Usage
 
 ```typescript
+// Full import (Node.js — includes clients, config, registry, migration)
 import { NRQLCompiler } from '@timstewart-dynatrace/nrql-engine';
 
+// Browser-safe subpath imports (no Node.js built-ins)
+import { NRQLCompiler } from '@timstewart-dynatrace/nrql-engine/compiler';
+import { DQLSyntaxValidator, DQLFixer } from '@timstewart-dynatrace/nrql-engine/validators';
+import { DashboardTransformer } from '@timstewart-dynatrace/nrql-engine/transformers';
+```
+
+```typescript
 const compiler = new NRQLCompiler();
 const result = compiler.compile("SELECT count(*) FROM Transaction WHERE appName = 'my-api' TIMESERIES");
 
