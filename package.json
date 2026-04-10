@@ -36,7 +36,7 @@
     "compiler",
     "ast"
   ],
-  "author": "Dynabridge Team",
+  "author": "Tim Stewart",
   "engines": {
     "node": ">=18.0.0"
   },
