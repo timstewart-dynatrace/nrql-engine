@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-04-10
+
+### Fixed
+- Make dotenv import conditional (Node.js only) so the package works in browser/Vite builds
+- Dynatrace app consumers no longer fail on unresolvable Node.js built-ins (fs, path, os, crypto)
+
 ## [0.2.0] - 2026-04-10
 
 ### Added
