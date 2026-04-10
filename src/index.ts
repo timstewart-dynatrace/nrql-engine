@@ -9,6 +9,13 @@ export type { ASTNode, Condition, Query, SelectItem, FacetItem } from './compile
 // Validators
 export { DQLSyntaxValidator, type DQLValidationError, type DQLValidationResult } from './validators/index.js';
 export { DQLFixer } from './validators/index.js';
+export {
+  validateNewRelicConfig,
+  validateDynatraceConfig,
+  validateDashboard,
+  validateMetricEvent,
+  validateSyntheticMonitor,
+} from './validators/index.js';
 
 // Transformers
 export { type TransformResult } from './transformers/types.js';

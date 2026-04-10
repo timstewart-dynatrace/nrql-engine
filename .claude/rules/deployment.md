@@ -2,7 +2,7 @@
 
 ## Release Checklist
 
-- [ ] All tests pass: `npm test` (677 tests)
+- [ ] All tests pass: `npm test` (838 tests)
 - [ ] Type-check clean: `npm run typecheck`
 - [ ] Version bumped in `package.json`
 - [ ] CHANGELOG.md updated
