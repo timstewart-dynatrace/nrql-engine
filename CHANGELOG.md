@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-04-10
+
+### Added
+- Entity mapping rules tests: 51 tests for EntityMapper, value maps, and nested access (mapping-rules.test.ts)
+- NRQL mapping rules tests: 62 tests for EVENT_TYPE_MAP, FUNC_MAP, and FIELD_MAP (nrql-mapping-rules.test.ts)
+- SLO auditor tests: 13 tests for metric extraction, DQL validation, and synonym groups (slo-auditor.test.ts)
+- Utils validators module: 5 validation functions for NR/DT config and entity structures (utils-validators.ts)
+- Utils validators tests: 35 tests for config and entity validation (utils-validators.test.ts)
+- Test count: 677 → 838 tests (Python parity, excluding 56 N/A CLI/exporter tests)
+
 ## [0.1.0] - 2026-04-09
 
 ### Added

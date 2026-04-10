@@ -2,7 +2,7 @@
 
 ## Release Checklist
 
-- [ ] All tests pass: `npm test` (677 tests)
+- [ ] All tests pass: `npm test` (838 tests)
 - [ ] Type-check clean: `npm run typecheck`
 - [ ] Version bumped in `package.json`
 - [ ] CHANGELOG.md updated
@@ -28,7 +28,7 @@ Requires `.npmrc` with auth:
 
 The `prepublishOnly` script ensures quality:
 1. `npm run typecheck` — zero type errors
-2. `npm test` — 677 tests pass
+2. `npm test` — 838 tests pass
 3. `npm run build` — clean `tsc` compilation
 
 ## Consumer Update Process

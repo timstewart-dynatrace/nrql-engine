@@ -1,4 +1,4 @@
-# DT NewRelic — NRQL Engine
+# nrql-engine
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5+-blue.svg)](https://www.typescriptlang.org/)
 [![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
@@ -50,7 +50,7 @@ cp .env.example .env  # Edit with your API credentials (for clients/registry)
 ## Development
 
 ```bash
-npm test              # Run all 677 tests
+npm test              # Run all 838 tests
 npm run typecheck     # Type-check with tsc
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage report
@@ -73,13 +73,13 @@ NR NerdGraph API → 10 Transformers → DT API clients
 | Module | Description | Tests |
 |--------|-------------|-------|
 | `compiler/` | NRQL-to-DQL AST compiler (lexer, parser, emitter) | 292 |
-| `validators/` | DQL syntax validator + auto-fixer | 94 |
-| `transformers/` | 10 entity transformers + RegexToDPL converter | 157 |
+| `validators/` | DQL syntax validator + auto-fixer + utils | 129 |
+| `transformers/` | 10 entity transformers + converters + mapping rules | 270 |
 | `clients/` | NR NerdGraph + DT API clients (axios) | 58 |
 | `config/` | Settings with zod + dotenv | 19 |
-| `registry/` | DTEnvironmentRegistry + SLO auditor | 26 |
+| `registry/` | DTEnvironmentRegistry + SLO auditor | 39 |
 | `migration/` | State, checkpoint, retry, diff | 31 |
-| **Total** | | **677** |
+| **Total** | | **838** |
 
 ## Entity Transformers
 

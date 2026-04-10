@@ -45,6 +45,6 @@ it('should emit timeseries for SystemSample', () => {
 ```
 
 ## Coverage Target
-- Match Python's 894 tests
+- Python parity achieved: 838 tests (894 minus 56 N/A CLI/exporter tests)
 - Every module must have tests before moving to the next
 - Phase gate: tests + docs required before each commit

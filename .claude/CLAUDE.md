@@ -9,7 +9,7 @@ Ported from the Python NR-to-DT migration tool at `/Users/Shared/GitHub/Dynatrac
 ## Essential Commands
 
 ```bash
-npm test              # 677 tests
+npm test              # 838 tests
 npm run typecheck     # tsc --noEmit
 npm run build         # tsc → dist/
 npm publish           # typecheck + test + build + publish
@@ -29,16 +29,16 @@ src/
 └── migration/                  # State management + checkpoint + diff
 ```
 
-## Module Status (all complete — 677 tests)
+## Module Status (all complete — 838 tests)
 
 | Module | Tests |
 |--------|-------|
 | Compiler (lexer, parser, emitter, orchestrator) | 292 |
-| Validators (DQL syntax validator + auto-fixer) | 94 |
-| Transformers (10 entities + converters) | 157 |
+| Validators (DQL syntax validator + auto-fixer + utils) | 129 |
+| Transformers (10 entities + converters + mapping rules) | 270 |
 | Clients (NR NerdGraph + DT API) | 58 |
 | Config (zod schemas + settings) | 19 |
-| Registry (DTEnvironmentRegistry + SLO auditor) | 26 |
+| Registry (DTEnvironmentRegistry + SLO auditor) | 39 |
 | Migration (state, checkpoint, retry, diff) | 31 |
 
 ## Consumers
