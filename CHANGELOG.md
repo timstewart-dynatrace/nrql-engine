@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-04-10
+
+### Fixed
+- Add `typesVersions` to package.json for TypeScript consumers using older `moduleResolution: "node"` (e.g., dt-app bundler v1.7.0) that don't read the `exports` field for type resolution
+
 ## [0.3.0] - 2026-04-10
 
 ### Added
