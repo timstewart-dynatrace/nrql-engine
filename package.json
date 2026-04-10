@@ -1,6 +1,6 @@
 {
   "name": "@timstewart-dynatrace/nrql-engine",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Shared NRQL-to-DQL engine — AST compiler, validators, transformers, API clients",
   "type": "module",
   "main": "dist/index.js",

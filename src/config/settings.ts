@@ -4,9 +4,14 @@
  * Uses zod for schema validation and dotenv for environment variable loading.
  */
 
-import 'dotenv/config';
-
 import { z } from 'zod';
+
+// Load dotenv only in Node.js environments (skip in browser/Vite builds)
+if (typeof globalThis.process !== 'undefined' && globalThis.process.versions?.node) {
+  import('dotenv/config').catch(() => {
+    // dotenv not available — env vars must be set externally
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Zod Schemas
