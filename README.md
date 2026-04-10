@@ -24,7 +24,7 @@ Front-ends (CLI, web UI, Dynatrace app) are provided by consuming projects.
 ## Usage
 
 ```typescript
-import { NRQLCompiler } from '@bhdynatrace/nrql-engine';
+import { NRQLCompiler } from '@timstewart-dynatrace/nrql-engine';
 
 const compiler = new NRQLCompiler();
 const result = compiler.compile("SELECT count(*) FROM Transaction WHERE appName = 'my-api' TIMESERIES");

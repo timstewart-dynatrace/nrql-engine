@@ -3,15 +3,14 @@
 ## Module Dependency Graph
 
 ```
-CLI (Commander)
-  └── compiler/       ← no deps, port first
+index.ts (barrel export)
+  └── compiler/       ← no deps
   └── validators/     ← regex only
   └── transformers/   ← depends on compiler, validators
   └── clients/        ← depends on config, axios
   └── config/         ← depends on zod, dotenv
   └── registry/       ← depends on clients
   └── migration/      ← depends on transformers
-  └── exporters/      ← depends on transformers
 ```
 
 ## NRQL Compiler Pipeline

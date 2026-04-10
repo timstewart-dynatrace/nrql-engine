@@ -24,8 +24,6 @@ Read the Python source files to understand what each module does before porting.
 | Layer | Technology | Python Equivalent |
 |-------|-----------|-------------------|
 | Runtime | Node.js 18+ / TypeScript 5+ | Python 3.9+ |
-| CLI | Commander.js | Click |
-| Output | chalk + cli-table3 | Rich |
 | Config | zod + dotenv | Pydantic |
 | Logging | pino | structlog |
 | HTTP | axios | requests |
@@ -37,22 +35,20 @@ Read the Python source files to understand what each module does before porting.
 
 ```
 src/
-├── index.ts                    # CLI entry point (Commander)
-├── cli/                        # Command handlers
-├── compiler/                   # NRQL-to-DQL AST compiler (PORT FIRST)
+├── index.ts                    # Barrel export (library entry point)
+├── compiler/                   # NRQL-to-DQL AST compiler
 │   ├── tokens.ts               # TokenType enum, Token interface
 │   ├── lexer.ts                # NRQLLexer class
 │   ├── ast-nodes.ts            # AST node types (use discriminated unions)
 │   ├── parser.ts               # NRQLParser (recursive descent)
 │   ├── emitter.ts              # DQLEmitter (context-aware DQL generation)
 │   └── compiler.ts             # NRQLCompiler (orchestrator)
-├── clients/                    # API clients
-├── transformers/               # 10 entity transformers
 ├── validators/                 # DQL syntax validator + auto-fixer
-├── registry/                   # Live DT environment validation
-├── migration/                  # State management + reports
+├── transformers/               # 10 entity transformers
+├── clients/                    # API clients (NR NerdGraph + DT)
 ├── config/                     # Settings (zod + dotenv)
-└── utils/                      # Logging, auth, helpers
+├── registry/                   # Live DT environment validation
+└── migration/                  # State management + checkpoint + diff
 ```
 
 ## Module Status (all complete)
