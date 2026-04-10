@@ -42,15 +42,14 @@ Requires `.npmrc` with GitHub Packages auth token (not committed).
 
 ## Module Dependencies
 
-Modules can be used independently. Only import what you need:
+Modules can be used independently. Browser-safe subpath imports avoid Node.js built-ins:
 
 ```typescript
-// Just the compiler (no HTTP, no config)
-import { NRQLCompiler } from '@timstewart-dynatrace/nrql-engine';
+// Browser-safe subpath imports (no Node.js deps)
+import { NRQLCompiler } from '@timstewart-dynatrace/nrql-engine/compiler';
+import { DQLSyntaxValidator, DQLFixer } from '@timstewart-dynatrace/nrql-engine/validators';
+import { DashboardTransformer } from '@timstewart-dynatrace/nrql-engine/transformers';
 
-// Just the validators
-import { DQLSyntaxValidator, DQLFixer } from '@timstewart-dynatrace/nrql-engine';
-
-// Full migration pipeline
+// Full import (Node.js only — includes clients, config, registry, migration)
 import { NewRelicClient, DynatraceClient, DashboardTransformer } from '@timstewart-dynatrace/nrql-engine';
 ```

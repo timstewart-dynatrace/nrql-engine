@@ -1,7 +1,7 @@
 {
   "projectName": "nrql-engine",
   "projectType": "typescript-library",
-  "version": "0.2.1",
+  "version": "0.3.0",
   "description": "Shared NRQL-to-DQL engine — AST compiler, validators, transformers, API clients",
 
   "repository": {

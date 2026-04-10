@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-04-10
+
+### Added
+- Conditional `exports` in package.json for browser-safe subpath imports
+  - `./compiler` — NRQL-to-DQL compiler (no Node.js deps)
+  - `./validators` — DQL syntax validator + auto-fixer + utils (no Node.js deps)
+  - `./transformers` — 10 entity transformers + mapping rules (no Node.js deps)
+- Dynatrace app consumers can now `import { NRQLCompiler } from '@timstewart-dynatrace/nrql-engine/compiler'` without pulling in Node.js-only modules (clients, config, registry, migration)
+
 ## [0.2.1] - 2026-04-10
 
 ### Fixed
