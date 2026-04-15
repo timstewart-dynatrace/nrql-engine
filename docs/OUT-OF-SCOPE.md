@@ -80,9 +80,43 @@ A small set of NR-specific features have no Gen3 equivalent.
 | Capability | Notes |
 |-----------|-------|
 | NR Browser Pro features | No DT equivalent |
-| IoT / Embedded agents | Use OTel |
+| IoT / Embedded agents | Use OTel (customer instrumentation rewrite) |
 | Error comments (threaded discussions on errors) | No equivalent |
+| Error status (resolved / ignored) per occurrence | DT Problem resolution does not carry per-record resolution state in a migratable form |
+| Error assignments / ownership | No per-occurrence assignee concept; use Davis problem ownership tags at a coarser grain |
 | User license types (Full / Core / Basic) | DT licensing model differs; not a config migration |
+| APM 360 (NR service-level overview UI) | DT Services app is automatic; nothing to migrate |
+| NR-Grafana plugin | Use the Dynatrace Grafana datasource directly; no NR-specific migration artifact |
+| NR Saved filter sets / favorites / pinned dashboards | UI preferences; not exposed by NR API in a migratable form |
+| Changes dashboard / change-intelligence correlation | Davis causal engine is automatic |
+| Issue tracker inline comments | Use Workflow → Jira / ServiceNow task (covered by `notification`) |
+
+### 7. Consolidated Secrets Ownership
+
+All of the following share one rule — **secrets do not migrate**. Re-provision the DT-side equivalent and feed the new value into whatever consumes it.
+
+| NR Surface | DT Equivalent (re-provision) |
+|-----------|------------------------------|
+| User API keys | DT API token (user-scoped) |
+| Ingest keys | DT ingest token |
+| License keys | OneAgent token |
+| Browser keys | DT RUM application ID |
+| Mobile keys | DT Mobile application ID |
+| SAML signing certificates | DT SAML IdP certificate |
+| SCIM tokens | DT SCIM token |
+| Integration auth (AWS IAM role ARN, Azure app secret, GCP service-account JSON) | New DT-side role / registration / service account |
+| Webhook URLs with embedded tokens | Regenerate against DT |
+
+If a consumer asks why the engine "lost" a token on migration, point here.
+
+### 8. Pre-Decommission Data Export (Ownership Clarification)
+
+Historical NRDB data cannot be ingested into Grail (schema + storage incompatibility). Customers who need continuity must either:
+
+1. **Run both platforms in parallel** during the transition window, or
+2. **Export NR data to cold storage** (S3 / GCS / Azure Blob / BigQuery) before decommissioning.
+
+The export itself is a long-running, stateful, credential-holding operation. It lives in the companion **`Dynatrace-NewRelic` Python CLI**, not in this library. This repo intentionally does not accept PRs that add `nrdb-export`-style commands — that surface would couple the library to host I/O and long-running state.
 
 ## Recommended Ownership Map
 
