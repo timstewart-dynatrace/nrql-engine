@@ -243,6 +243,101 @@ export type {
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
 
+// Database Monitoring transformer (Gen3)
+export { DatabaseMonitoringTransformer } from './database-monitoring.transformer.js';
+export type {
+  NRDbEngine,
+  NRDatabaseMonitorInput,
+  DatabaseMonitoringTransformData,
+  DTDbExtensionConfig,
+} from './database-monitoring.transformer.js';
+
+// Security Signals transformer (Gen3)
+export { SecuritySignalsTransformer } from './security-signals.transformer.js';
+export type {
+  NRSecuritySignalSeverity,
+  NRSecuritySignalRule,
+  NRSecuritySignalsInput,
+  SecuritySignalsTransformData,
+  DTSecurityBizeventRule,
+} from './security-signals.transformer.js';
+
+// On-host integration transformer (Gen3)
+export { OnHostIntegrationTransformer } from './on-host-integration.transformer.js';
+export type {
+  NROnHostIntegrationKind,
+  NROnHostIntegrationInput,
+  OnHostIntegrationTransformData,
+  DTOnHostExtensionConfig,
+} from './on-host-integration.transformer.js';
+
+// Log Live Archive + Streaming Export transformer (Gen3)
+export { LogArchiveTransformer } from './log-archive.transformer.js';
+export type {
+  NRArchiveStorageTier,
+  NRLogArchiveConfig,
+  NRStreamingExportTarget,
+  NRStreamingExportConfig,
+  NRLogArchiveInput,
+  LogArchiveTransformData,
+  DTGrailBucket,
+  DTComplianceTag,
+  DTOpenPipelineEgress,
+} from './log-archive.transformer.js';
+
+// Metric Normalization transformer (Gen3)
+export { MetricNormalizationTransformer } from './metric-normalization.transformer.js';
+export type {
+  NRNormalizationAction,
+  NRMetricNormalizationRule,
+  NRMetricNormalizationInput,
+  MetricNormalizationTransformData,
+  DTMetricProcessor,
+  DTMetricProcessorOp,
+} from './metric-normalization.transformer.js';
+
+// Dashboard widget upgrade transformer (Gen3)
+export { DashboardWidgetUpgradeTransformer } from './dashboard-widget-upgrade.transformer.js';
+export type {
+  NRHeatmapWidgetInput,
+  NREventFeedWidgetInput,
+  NRFunnelWidgetInput,
+  DTHoneycombTile,
+  DTTableTile,
+  DTMarkdownTile,
+  DTMarkdownFunnelResult,
+} from './dashboard-widget-upgrade.transformer.js';
+
+// Multi-location synthetic condition transformer (Gen3)
+export { MultiLocationSyntheticTransformer } from './multi-location-synthetic.transformer.js';
+export type {
+  NRMultiLocationSyntheticInput,
+  MultiLocationSyntheticTransformData,
+  DTMultiLocationMetricEvent,
+} from './multi-location-synthetic.transformer.js';
+
+// Saved filter / Data App → Notebook transformer (Gen3)
+export { SavedFilterNotebookTransformer } from './saved-filter-notebook.transformer.js';
+export type {
+  NRSavedFilter,
+  NRDataAppWidget,
+  NRSavedFilterSetInput,
+  SavedFilterNotebookTransformData,
+  DTNotebookCell,
+  DTNotebookPayload,
+} from './saved-filter-notebook.transformer.js';
+
+// Davis anomaly-detection tuning transformer (Gen3)
+export { DavisTuningTransformer } from './davis-tuning.transformer.js';
+export type {
+  NRDavisSignal,
+  NRDavisSensitivity,
+  NRDavisTuningRule,
+  NRDavisTuningInput,
+  DavisTuningTransformData,
+  DTDavisAnomalySetting,
+} from './davis-tuning.transformer.js';
+
 // Vulnerability Management transformer (Gen3)
 export { VulnerabilityManagementTransformer } from './vulnerability.transformer.js';
 export type {

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 10 — specialized products + stretch)
+
+Closes the remaining 🔴 rows identified in the Phase 07 audit. Several
+items (AI Monitoring, NPM, Vulnerability Management, custom
+instrumentation) already shipped in Phase 11 back-ports; the
+remaining ten translators landed here.
+
+- **P10-03 DatabaseMonitoringTransformer** — 10 engines (mysql / postgres / mssql / oracle / mongodb / redis / cassandra / mariadb / db2 / hana) with slow-query + wait-event toggles and a `dt.services.database.*` metric-key seed list.
+- **P10-05 SecuritySignalsTransformer** — NR security signals → OpenPipeline bizevent rules tagged `event.category=SECURITY` with DT Security Investigator attr conventions.
+- **P10-12 OnHostIntegrationTransformer** — 10 NR on-host integrations (nginx / haproxy / kafka / rabbitmq / elasticsearch / memcached / couchbase / consul / apache / etcd) → DT extensions.
+- **P10-13/14 LogArchiveTransformer** — NR Log Live Archive → `builtin:bucket.retention` with compliance tags; streaming exports (Kinesis / Event Hub / Pub/Sub / HTTP) → OpenPipeline egress stage entries.
+- **P10-15/16 Data Plus tier + bucket retention** — emitted inside `LogArchiveTransformer` via `DTGrailBucket.complianceTags` (hipaa / pci-dss / fedramp-moderate / sox); warns when the target tenant may not have the Data Plus tier.
+- **P10-17 MetricNormalizationTransformer** — NR normalization rules → OpenPipeline metric transforms (RENAME / SCALE / CONVERT_UNIT / DERIVE). Built-in bytes↔(KB/MB/GB) + time↔(s/ms/µs) unit conversion tables.
+- **P10-18/19/20 DashboardWidgetUpgradeTransformer** — `upgradeHeatmap()` → honeycomb, `upgradeEventFeed()` → table-sort-desc, `upgradeFunnel()` → markdown + companion DQL `summarize` block (DT has no native funnel tile).
+- **P10-21 MultiLocationSyntheticTransformer** — NR multi-location condition → DQL `countDistinctExact(location.id)` + Metric Event with threshold-aware eventTemplate.
+- **P10-22 SavedFilterNotebookTransformer** — NR saved filters + Data Apps → DT Notebook payloads with markdown + DQL cells per filter.
+- **P10-23 DavisTuningTransformer** — NR proactive-detection suppression / Golden-Signal tuning → `builtin:anomaly-detection.davis` settings (7 signals × 4 sensitivities, optional entity-tag scope).
+
+Tests: 1206 → 1264 (+58). Typecheck clean.
+
 ### Added (Phase 11 — Dynatrace-NewRelic back-ports)
 
 Six library-appropriate capabilities back-ported from the Python `Dynatrace-NewRelic` CLI (survey 2026-04-15). Three candidates (NRDB archive, agent host-ops orchestrators, Lambda layer ARN already covered) confirmed out-of-scope.

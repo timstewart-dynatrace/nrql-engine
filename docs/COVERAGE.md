@@ -90,7 +90,7 @@
 | Azure integration config | DT Azure integration | transformers/cloud-integration | ✅ subscription list + management group + resource-group allow/exclude |
 | GCP integration config | DT GCP integration | transformers/cloud-integration | ✅ multi-project list + service-account email |
 | AWS Lambda integration | DT Lambda extension config | transformers/lambda | ✅ resolvedLayerArn per-region + 27-region commercial-partition table |
-| On-host integrations (MySQL, Postgres, Redis, …) | DT extensions / OneAgent plugins | — | 🔴 Phase 10 |
+| On-host integrations (MySQL, Postgres, Redis, …) | DT extensions / OneAgent plugins | transformers/on-host-integration | ✅ 10 integrations (nginx/haproxy/kafka/rabbitmq/elasticsearch/memcached/couchbase/consul/apache/etcd) |
 | CloudWatch Metric Streams (Kinesis) | DT AWS Metric Streams ingest | transformers/cloudwatch-metric-streams | ✅ settings + Firehose spec + IAM trust |
 | Kubernetes integration | DT DynaKube | transformers/kubernetes | ✅ full fidelity — mode selector, CSI, privileged, hostNetwork, resources, tolerations, nodeSelector, priorityClassName, ActiveGate replicas/capabilities, metadataEnrichment |
 | Prometheus integration | DT Prometheus ingestion | transformers/prometheus | ✅ remote-write + scrape + all 7 relabel actions (drop/keep/replace/labeldrop/labelkeep/labelmap; hashmod warns) |
@@ -121,8 +121,8 @@
 | Log API (HTTP POST) | DT Generic Log Ingest API | — | 🟡 endpoint change |
 | Drop rules (v1 NRQL) | OpenPipeline filter processors | transformers/drop-rule | ✅ |
 | Drop Filter Rules v2 (attribute-scoped) | OpenPipeline attribute-drop | transformers/drop-rule (transformV2) | ✅ DROP_DATA / DROP_ATTRIBUTES / KEEP_ATTRIBUTES across 4 pipelines |
-| Log Live Archive (tiered long-term) | Grail cold bucket + retention | — | 🔴 Phase 10 |
-| Streaming Exports (AWS Kinesis / Azure EH / GCP PubSub) | Grail → OpenPipeline HTTP egress | — | 🔴 Phase 10 |
+| Log Live Archive (tiered long-term) | Grail cold bucket + retention | transformers/log-archive | ✅ `builtin:bucket.retention` + compliance tags |
+| Streaming Exports (AWS Kinesis / Azure EH / GCP PubSub) | Grail → OpenPipeline HTTP egress | transformers/log-archive | ✅ OpenPipeline egress stage |
 | Parsing rules (Grok) | OpenPipeline DPL parsers | transformers/log-parsing | ✅ |
 | Obfuscation rules (PII / PAN masking) | OpenPipeline masking processors | transformers/log-obfuscation | ✅ built-in category patterns + PCRE→DPL translator (12 feature detectors, inline-flag strip, (?<name>) normalization) |
 | Log patterns (auto-clustering) | DT log pattern recognition | — | ⚫ platform feature |
@@ -168,7 +168,7 @@
 | Decisions (correlation rules) | Davis causal engine | — | ⚫ Davis replaces manual decisions |
 | NR Workflows (for incident routing, classic) | DT Gen3 Workflows | transformers/aiops | ✅ |
 | NR Workflows v2 (new UI, different shape) | DT Gen3 Workflows | transformers/aiops (transformV2) | ✅ predicate translation + mutingRulesHandling + enrichments + destinationConfigurations |
-| Suppression / Golden Signal tuning | Davis anomaly settings | — | 🔴 Phase 10 |
+| Suppression / Golden Signal tuning | Davis anomaly settings | transformers/davis-tuning | ✅ 7 signals × 4 sensitivities with entity-tag scopes |
 | Destinations (webhook targets) | Workflow tasks | transformers/aiops + transformers/notification | ✅ |
 | Enrichments (NRQL-based context injection) | Workflow enrichment steps | transformers/aiops | ✅ NRQL compiled through NRQLCompiler; confidence band reported on each enrichment task |
 | Proactive detection (APM auto-baselines) | Davis adaptive baselines | — | ⚫ platform feature |
@@ -189,15 +189,15 @@
 |-----------|-------------|---------------|--------|
 | Dashboard (multi-page) | DT Documents (one per page) | transformers/dashboard | ✅ |
 | Widgets: line / area / bar / pie / table / billboard / histogram / markdown / JSON | DT Grail DATA_EXPLORER tile variants | transformers/dashboard | ✅ |
-| Widget: heatmap | DT honeycomb / table | transformers/dashboard | 🟡 |
-| Widget: event feed | DT table | transformers/dashboard | 🟡 |
-| Widget: funnel | DT markdown placeholder | transformers/dashboard | 🔴 manual |
+| Widget: heatmap | DT honeycomb | transformers/dashboard-widget-upgrade | ✅ `upgradeHeatmap()` |
+| Widget: event feed | DT table (time sort) | transformers/dashboard-widget-upgrade | ✅ `upgradeEventFeed()` |
+| Widget: funnel | DT markdown + pre-built DQL | transformers/dashboard-widget-upgrade | ✅ `upgradeFunnel()` (DT has no native funnel tile) |
 | Nerdpack widget | no DT equivalent | — | ⚫ |
 | Dashboard variables (enum / NRQL / string) | DT Document variables | transformers/dashboard | ✅ |
 | Cascading variables | DT cascading variables | transformers/dashboard | 🟡 |
 | Dashboard permissions | Document sharing | — | 🟡 manual mapping |
-| Saved filter sets | Document saved views | — | 🔴 Phase 10 |
-| Saved query / Data Apps | DT Notebooks | — | 🔴 Phase 10 |
+| Saved filter sets | Document saved views / Notebooks | transformers/saved-filter-notebook | ✅ |
+| Saved query / Data Apps | DT Notebooks | transformers/saved-filter-notebook | ✅ markdown + DQL cells |
 
 ## 11. Users, Teams, Access
 
@@ -251,10 +251,10 @@
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
 | Data partitions (default + custom) | Grail buckets | — | 🟡 documented, no auto-creation |
-| Data Plus tier features (retention, PCI / HIPAA / FedRAMP) | Grail retention + bucket compliance tags | — | 🔴 Phase 10 |
+| Data Plus tier features (retention, PCI / HIPAA / FedRAMP) | Grail retention + bucket compliance tags | transformers/log-archive | ✅ compliance tags (hipaa / pci-dss / fedramp-moderate / sox) |
 | Data retention settings | Per-bucket retention | — | 🟡 manual (Terraform) |
 | Event type metadata | — | — | ⚫ DT event types fixed |
-| Metric normalization rules | OpenPipeline metric processing | — | 🔴 Phase 03 |
+| Metric normalization rules | OpenPipeline metric processing | transformers/metric-normalization | ✅ RENAME / SCALE / CONVERT_UNIT / DERIVE |
 | Custom event types (via Event API) | `bizevent.ingest` | transformers/custom-event | ✅ |
 | Historical data (NRDB) | — | — | ⚫ not migratable to Grail |
 | Archive / export (pre-decommission) | NR export via API | — | ⚫ out-of-scope (host ops, long-running; see OUT-OF-SCOPE.md) |
@@ -268,9 +268,9 @@
 | Vulnerability Management | DT Application Security | transformers/vulnerability | ✅ RVA settings + muting rules + license-policy runbook |
 | Network Performance Monitoring / NPM / DDI | DT Network monitoring + extensions | transformers/npm | ✅ SNMP extension + NetFlow/IPFIX/sFlow ingest |
 | AI Monitoring / MLM | DT AI Observability | transformers/ai-monitoring | ✅ model registry + bizevent attr rewrites to DT AIO conventions |
-| Database Monitoring (NRDM) | DT DB extensions + `dt.services.database.*` | — | 🔴 Phase 10 |
+| Database Monitoring (NRDM) | DT DB extensions + `dt.services.database.*` | transformers/database-monitoring | ✅ 10 engines (mysql/postgres/mssql/oracle/mongodb/redis/cassandra/mariadb/db2/hana) |
 | IoT / Embedded | OTel | — | ⚫ no direct equivalent |
-| Security signals | DT Security Investigator | — | 🔴 Phase 10 (stretch) |
+| Security signals | DT Security Investigator | transformers/security-signals | ✅ bizevent rules with event.category=SECURITY |
 | APM 360 (service-level overview UI) | DT Services app (auto) | — | ⚫ platform feature |
 | NR-Grafana plugin | Grafana DT datasource | — | ⚫ no migratable artifact |
 | NR Prometheus Agent | DT Prometheus remote write | — | 🔴 Phase 03 |
