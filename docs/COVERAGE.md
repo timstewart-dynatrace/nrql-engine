@@ -2,7 +2,7 @@
 
 > **Purpose:** Operational status dashboard — every New Relic surface, mapped to its Gen3 Dynatrace equivalent and the engine module responsible. Tracks what is convertible today, what is partial, what is a gap, and what is not convertible.
 >
-> **Rule:** Gen3 default output. Gen2 shapes are available as opt-in via `Legacy*` classes / `createTransformer(kind, { legacy: true })` and always emit a warning. See `.claude/phases/` for the 12-phase delivery history.
+> **Rule:** Gen3 default output. Gen2 shapes are available as opt-in via `Legacy*` classes / `createTransformer(kind, { legacy: true })` and always emit a warning. See `.claude/phases/` for the 15-phase delivery history.
 >
 > **Companion docs:**
 > - `MIGRATABILITY.md` — full reasoning layer ("why" each surface is in its current band, A/B/C/D classification)

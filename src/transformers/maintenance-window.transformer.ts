@@ -183,7 +183,8 @@ export class MaintenanceWindowTransformer {
         return failure(['kind (SCHEDULED | MUTE_RULE) is required']);
       }
       const warnings: string[] = [];
-      const name = input.name ?? `[Migrated ${input.kind}]`;
+      const rawName = input.name ?? input.kind;
+      const name = rawName.startsWith('[Migrated') ? rawName : `[Migrated] ${rawName}`;
       const suppression = input.suppressionMode ?? 'DETECT_PROBLEMS_DONT_ALERT';
 
       let recurrence: NRMaintenanceRecurrence = input.recurrence ?? 'ONCE';

@@ -21,3 +21,19 @@ export { FailedEntities } from './retry.js';
 
 export { DiffReport } from './diff.js';
 export type { DiffEntry } from './diff.js';
+
+export { runAudit, driftByKind } from './audit.js';
+export type {
+  AuditEntity,
+  AuditInput,
+  AuditReport,
+  DriftKind,
+  DriftRecord,
+} from './audit.js';
+
+export { ConversionReport } from './conversion-report.js';
+export type {
+  ConversionQueryRecord,
+  ConversionReportSummary,
+  ConversionReportOptions,
+} from './conversion-report.js';

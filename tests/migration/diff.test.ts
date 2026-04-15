@@ -43,7 +43,7 @@ describe('DiffReport', () => {
     report.add('management_zone', 'MZ A', 'CONFLICT', 'Multiple matches');
 
     const summary = report.summary();
-    expect(summary).toEqual({ creates: 2, updates: 1, conflicts: 1 });
+    expect(summary).toEqual({ creates: 2, updates: 1, conflicts: 1, orphans: 0 });
   });
 
   it('should identify creates', async () => {
@@ -91,7 +91,7 @@ describe('DiffReport', () => {
     const mockRegistry = createMockRegistry();
     const report = await DiffReport.generateDiff({}, mockRegistry);
     expect(report.entries.length).toBe(0);
-    expect(report.summary()).toEqual({ creates: 0, updates: 0, conflicts: 0 });
+    expect(report.summary()).toEqual({ creates: 0, updates: 0, conflicts: 0, orphans: 0 });
     expect(report.getCreates()).toEqual([]);
     expect(report.getUpdates()).toEqual([]);
   });

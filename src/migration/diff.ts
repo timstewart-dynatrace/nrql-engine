@@ -4,6 +4,8 @@
 
 import pino from 'pino';
 
+import { looksMigrated } from '../utils/provenance.js';
+
 const logger = pino({ name: 'migration-diff' });
 
 // ---------------------------------------------------------------------------
@@ -14,7 +16,7 @@ const logger = pino({ name: 'migration-diff' });
 export interface DiffEntry {
   readonly entityType: string;
   readonly name: string;
-  readonly action: 'CREATE' | 'UPDATE' | 'CONFLICT';
+  readonly action: 'CREATE' | 'UPDATE' | 'CONFLICT' | 'ORPHAN';
   readonly reason: string;
   readonly dtId?: string;
 }
@@ -22,10 +24,20 @@ export interface DiffEntry {
 /**
  * Registry interface for diff generation.
  * Matches the subset of DTEnvironmentRegistry used by generateDiff.
+ *
+ * The optional `listDashboards` / `listManagementZones` callbacks enable
+ * ORPHAN detection — DT entities present in the tenant but absent from
+ * the transformed set. When supplied, `generateDiff()` walks the DT
+ * snapshot and calls `looksMigrated()` to surface rogue migrated
+ * entities from prior runs.
  */
 interface DiffRegistry {
   dashboardExists(name: string): Promise<string | undefined>;
   findManagementZone(name: string): Promise<{ id: string } | undefined>;
+  /** Optional: enumerate all dashboards for ORPHAN detection (P15-03). */
+  listDashboards?(): Promise<Array<{ id: string; name: string; payload?: Record<string, unknown> }>>;
+  /** Optional: enumerate all management zones for ORPHAN detection (P15-03). */
+  listManagementZones?(): Promise<Array<{ id: string; name: string; payload?: Record<string, unknown> }>>;
 }
 
 // ---------------------------------------------------------------------------
@@ -44,7 +56,7 @@ export class DiffReport {
   add(
     entityType: string,
     name: string,
-    action: 'CREATE' | 'UPDATE' | 'CONFLICT',
+    action: 'CREATE' | 'UPDATE' | 'CONFLICT' | 'ORPHAN',
     reason: string,
     dtId?: string,
   ): void {
@@ -112,20 +124,72 @@ export class DiffReport {
       }
     }
 
+    // ─── ORPHAN detection (P15-03) ────────────────────────────────────
+    // For each entity kind where the registry can enumerate DT-side
+    // inventory, look for entities that aren't in the transformed set
+    // but look migrated (prior-run residue or operator copies).
+    if (registry.listDashboards) {
+      const transformedNames = new Set(
+        (Array.isArray(transformedData['dashboards'])
+          ? (transformedData['dashboards'] as Array<Record<string, unknown>>)
+          : []
+        ).map((d) => String(d['name'] ?? '')),
+      );
+      for (const dt of await registry.listDashboards()) {
+        if (transformedNames.has(dt.name)) continue;
+        if (!dt.payload || looksMigrated(dt.payload)) {
+          report.add(
+            'dashboard',
+            dt.name,
+            'ORPHAN',
+            'Present in DT, not in transformed set (looks migrated)',
+            dt.id,
+          );
+        }
+      }
+    }
+    if (registry.listManagementZones) {
+      const transformedNames = new Set(
+        (Array.isArray(transformedData['management_zones'])
+          ? (transformedData['management_zones'] as Array<Record<string, unknown>>)
+          : []
+        ).map((d) => String(d['name'] ?? '')),
+      );
+      for (const dt of await registry.listManagementZones()) {
+        if (transformedNames.has(dt.name)) continue;
+        if (!dt.payload || looksMigrated(dt.payload)) {
+          report.add(
+            'management_zone',
+            dt.name,
+            'ORPHAN',
+            'Present in DT, not in transformed set (looks migrated)',
+            dt.id,
+          );
+        }
+      }
+    }
+
     return report;
   }
 
   /** Return counts by action type. */
-  summary(): { creates: number; updates: number; conflicts: number } {
+  summary(): {
+    creates: number;
+    updates: number;
+    conflicts: number;
+    orphans: number;
+  } {
     let creates = 0;
     let updates = 0;
     let conflicts = 0;
+    let orphans = 0;
     for (const e of this.entries) {
       if (e.action === 'CREATE') creates++;
       else if (e.action === 'UPDATE') updates++;
       else if (e.action === 'CONFLICT') conflicts++;
+      else if (e.action === 'ORPHAN') orphans++;
     }
-    return { creates, updates, conflicts };
+    return { creates, updates, conflicts, orphans };
   }
 
   /** Return all entries with CREATE action. */
@@ -136,5 +200,10 @@ export class DiffReport {
   /** Return all entries with UPDATE action. */
   getUpdates(): DiffEntry[] {
     return this.entries.filter((e) => e.action === 'UPDATE');
+  }
+
+  /** Return all entries with ORPHAN action (P15-03). */
+  getOrphans(): DiffEntry[] {
+    return this.entries.filter((e) => e.action === 'ORPHAN');
   }
 }
