@@ -117,6 +117,67 @@ function slugify(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
+// ---------------------------------------------------------------------------
+// SCIM filter translator (NR SCIM v2 → DT SCIM)
+// ---------------------------------------------------------------------------
+
+/**
+ * Translate a NR SCIM v2 filter expression into DT SCIM syntax. Both
+ * implement the same RFC 7644 filter grammar so the translation is
+ * mostly attribute-path renaming. A few NR-specific attribute names
+ * (`active`, `userName`, `emails.value`) map to DT's equivalents.
+ *
+ * Returns the translated filter plus warnings enumerating any feature
+ * that had no DT equivalent.
+ */
+export interface ScimFilterResult {
+  readonly filter: string;
+  readonly warnings: string[];
+}
+
+const NR_TO_DT_ATTR_MAP: Record<string, string> = {
+  userName: 'email',
+  'emails.value': 'email',
+  'name.givenName': 'firstName',
+  'name.familyName': 'lastName',
+  active: 'enabled',
+  'groups.display': 'groups',
+  externalId: 'externalId',
+  id: 'id',
+};
+
+export function translateScimFilter(nrFilter: string): ScimFilterResult {
+  const warnings: string[] = [];
+  if (!nrFilter || !nrFilter.trim()) {
+    return { filter: '', warnings };
+  }
+
+  let dpl = nrFilter;
+
+  // Rename attribute paths. Order matters — replace the longer paths first
+  // so `emails.value` isn't partially overwritten by a shorter match.
+  const ordered = Object.entries(NR_TO_DT_ATTR_MAP).sort(
+    ([a], [b]) => b.length - a.length,
+  );
+  for (const [nrAttr, dtAttr] of ordered) {
+    const esc = nrAttr.replace(/\./g, '\\.');
+    dpl = dpl.replace(new RegExp(`\\b${esc}\\b`, 'g'), dtAttr);
+  }
+
+  if (/\bmeta\./.test(dpl)) {
+    warnings.push(
+      'SCIM filter references `meta.*` attributes (created / lastModified); DT SCIM exposes these only on read-only resources — filters on `meta.*` may return empty.',
+    );
+  }
+  if (/\bpr\b/i.test(dpl)) {
+    warnings.push(
+      "SCIM 'pr' (present) operator is supported in DT SCIM but DT rejects it on attributes it does not index (e.g. externalId). Verify against your target tenant.",
+    );
+  }
+
+  return { filter: dpl, warnings };
+}
+
 const MANUAL_STEPS: string[] = [
   'Re-provision SAML signing certificates and SCIM tokens in Dynatrace — NR IdP secrets are not transferable.',
   'Users are created on first SSO sign-in. The emitted user stubs are for IAM policy binding metadata only; do not attempt to pre-create them.',

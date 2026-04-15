@@ -83,4 +83,119 @@ describe('MaintenanceWindowTransformer', () => {
     expect(result.warnings.some((w) => w.includes('no direct equivalent'))).toBe(true);
     expect(result.warnings.some((w) => w.includes('timezone'))).toBe(true);
   });
+
+  it('should honor rrule FREQ=WEEKLY;BYDAY=MO,WE,FR', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=WEEKLY;BYDAY=MO,WE,FR',
+    });
+    expect(result.data!.window.schedule.scheduleType).toBe('WEEKLY');
+    expect(result.data!.window.schedule.daysOfWeek).toEqual([
+      'MONDAY',
+      'WEDNESDAY',
+      'FRIDAY',
+    ]);
+  });
+
+  it('should honor rrule FREQ=DAILY', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=DAILY',
+    });
+    expect(result.data!.window.schedule.scheduleType).toBe('DAILY');
+  });
+
+  it('should downgrade FREQ=YEARLY to MONTHLY with warning', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=YEARLY',
+    });
+    expect(result.data!.window.schedule.scheduleType).toBe('MONTHLY');
+    expect(result.warnings.some((w) => w.includes('YEARLY'))).toBe(true);
+  });
+
+  it('should warn on INTERVAL != 1', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=WEEKLY;INTERVAL=2;BYDAY=MO',
+    });
+    expect(result.warnings.some((w) => w.includes('INTERVAL=2'))).toBe(true);
+  });
+
+  it('should warn on unsupported rrule parts', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=MONTHLY;BYMONTH=3;BYSETPOS=-1;COUNT=5;UNTIL=20261231',
+    });
+    expect(result.warnings.some((w) => w.includes('BYMONTH'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('BYSETPOS'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('COUNT'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('UNTIL'))).toBe(true);
+  });
+
+  it('should strip BYDAY position prefixes like "2MO"', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=MONTHLY;BYDAY=2MO',
+    });
+    expect(result.data!.window.schedule.scheduleType).toBe('MONTHLY');
+  });
+
+  it('should warn on unrecognized BYDAY tokens', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      rrule: 'FREQ=WEEKLY;BYDAY=ZZ',
+    });
+    expect(result.warnings.some((w) => w.includes('BYDAY token'))).toBe(true);
+  });
+
+  it('should take rrule precedence over recurrence + daysOfWeek', () => {
+    const result = transformer.transform({
+      kind: 'SCHEDULED',
+      recurrence: 'DAILY',
+      daysOfWeek: ['MONDAY'],
+      rrule: 'FREQ=WEEKLY;BYDAY=SA,SU',
+    });
+    expect(result.data!.window.schedule.scheduleType).toBe('WEEKLY');
+    expect(result.data!.window.schedule.daysOfWeek).toEqual(['SATURDAY', 'SUNDAY']);
+  });
+});
+
+describe('translateScimFilter', () => {
+  it('should return empty filter untouched', async () => {
+    const { translateScimFilter } = await import('../../src/transformers/index.js');
+    expect(translateScimFilter('').filter).toBe('');
+  });
+
+  it('should rewrite userName / emails.value to email', async () => {
+    const { translateScimFilter } = await import('../../src/transformers/index.js');
+    const a = translateScimFilter('userName eq "alice@example.com"');
+    expect(a.filter).toBe('email eq "alice@example.com"');
+    const b = translateScimFilter('emails.value eq "bob@example.com"');
+    expect(b.filter).toBe('email eq "bob@example.com"');
+  });
+
+  it('should rewrite name.givenName / name.familyName / active', async () => {
+    const { translateScimFilter } = await import('../../src/transformers/index.js');
+    const r = translateScimFilter(
+      'name.givenName eq "Alice" and name.familyName eq "Smith" and active eq true',
+    );
+    expect(r.filter).toBe('firstName eq "Alice" and lastName eq "Smith" and enabled eq true');
+  });
+
+  it('should warn on meta.* attribute references', async () => {
+    const { translateScimFilter } = await import('../../src/transformers/index.js');
+    const r = translateScimFilter('meta.created ge "2026-01-01T00:00:00Z"');
+    expect(r.warnings.some((w) => w.includes('meta.'))).toBe(true);
+  });
+
+  it('should preserve complex logical operators', async () => {
+    const { translateScimFilter } = await import('../../src/transformers/index.js');
+    const r = translateScimFilter(
+      '(userName co "alice" or userName co "bob") and active eq true',
+    );
+    expect(r.filter).toContain('email co "alice"');
+    expect(r.filter).toContain('email co "bob"');
+    expect(r.filter).toContain('enabled eq true');
+  });
 });

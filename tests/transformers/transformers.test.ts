@@ -1017,6 +1017,62 @@ describe('SLOTransformer', () => {
     });
   });
 
+  describe('transformV3 (Service Levels v3)', () => {
+    it('should fail without sli.nrql', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = sloTransformer.transformV3({ name: 'x', sli: {} as any });
+      expect(result.success).toBe(false);
+    });
+
+    it('should emit DTSlo with rolling timeframe', () => {
+      const result = sloTransformer.transformV3({
+        name: 'Checkout availability',
+        sli: { nrql: "SELECT percentage(count(*), WHERE error IS NULL) FROM Transaction" },
+        target: 99.5,
+        timeWindow: { rolling: { count: 30, unit: 'DAY' } },
+      });
+      expect(result.success).toBe(true);
+      expect(result.data!.timeframe).toBe('-30d');
+      expect(result.data!.target).toBe(99.5);
+      expect(result.data!.name).toContain('[Migrated SLv3]');
+    });
+
+    it('should map calendar-aligned window to snap expression', () => {
+      const result = sloTransformer.transformV3({
+        name: 'x',
+        sli: { nrql: 'q' },
+        timeWindow: { calendarAligned: { unit: 'MONTH' } },
+      });
+      expect(result.data!.timeframe).toBe('-1M@M');
+    });
+
+    it('should combine nrql + badEventsNrql when provided', () => {
+      const result = sloTransformer.transformV3({
+        name: 'errs',
+        sli: {
+          nrql: 'SELECT count(*) FROM Transaction',
+          badEventsNrql: "duration > 1 AND error IS NOT NULL",
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(result.data!.metricExpression).toContain('builtin:service.errors');
+    });
+
+    it('should include entityGuid filter when supplied', () => {
+      const result = sloTransformer.transformV3({
+        name: 'x',
+        sli: { nrql: 'q' },
+        entityGuid: 'SERVICE-123',
+      });
+      expect(result.data!.filter).toBe('entityId("SERVICE-123")');
+    });
+
+    it('should surface v3-specific review warning', () => {
+      const result = sloTransformer.transformV3({ name: 'x', sli: { nrql: 'q' } });
+      expect(result.warnings.some((w) => w.includes('v3'))).toBe(true);
+    });
+  });
+
   describe('transform all', () => {
     it('should transform multiple slos', () => {
       const slos = [

@@ -81,6 +81,7 @@ export type {
   NRSloInput,
   NRSloObjective,
   NRSloEvents,
+  NRServiceLevelV3Input,
   DTSlo,
 } from './slo.transformer.js';
 
@@ -173,7 +174,7 @@ export type {
 } from './baseline-alert.transformer.js';
 
 // Maintenance window transformer (Gen3)
-export { MaintenanceWindowTransformer } from './maintenance-window.transformer.js';
+export { MaintenanceWindowTransformer, parseRrule } from './maintenance-window.transformer.js';
 export type {
   NRMaintenanceKind,
   NRMaintenanceRecurrence,
@@ -185,7 +186,7 @@ export type {
 } from './maintenance-window.transformer.js';
 
 // Identity transformer (Gen3)
-export { IdentityTransformer } from './identity.transformer.js';
+export { IdentityTransformer, translateScimFilter } from './identity.transformer.js';
 export type {
   NRIdentityInput,
   NRUser,
@@ -197,6 +198,7 @@ export type {
   DTTeam,
   DTIamPolicyV2,
   DTSamlIdpConfig,
+  ScimFilterResult,
 } from './identity.transformer.js';
 
 // Change tracking transformer (Gen3)
@@ -240,6 +242,23 @@ export type {
   LookupTableTransformData,
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
+
+// Key Transaction transformer (Gen3)
+export { KeyTransactionTransformer } from './key-transaction.transformer.js';
+export type {
+  NRKeyTransactionInput,
+  KeyTransactionTransformData,
+  DTCriticalServiceTag,
+  DTKeyTxSlo,
+} from './key-transaction.transformer.js';
+
+// Custom Entity transformer (Gen3)
+export { CustomEntityTransformer } from './custom-entity.transformer.js';
+export type {
+  NRCustomEntityInput,
+  CustomEntityTransformData,
+  DTCustomDevicePayload,
+} from './custom-entity.transformer.js';
 
 // CloudWatch Metric Streams transformer (Gen3)
 export { CloudWatchMetricStreamsTransformer } from './cloudwatch-metric-streams.transformer.js';

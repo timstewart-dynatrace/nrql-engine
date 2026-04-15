@@ -44,6 +44,11 @@ export interface NRMaintenanceWindowInput {
   /** Only set for MUTE_RULE kind. */
   readonly muteNrql?: string;
   readonly suppressionMode?: 'DETECT_PROBLEMS_DONT_ALERT' | 'DONT_DETECT_PROBLEMS';
+  /**
+   * RFC 5545 recurrence rule string (e.g. `FREQ=WEEKLY;BYDAY=MO,WE,FR`).
+   * When supplied it takes precedence over `recurrence` + `daysOfWeek`.
+   */
+  readonly rrule?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -90,6 +95,81 @@ function defaultWindow(): string {
   return now;
 }
 
+const RRULE_DAY_MAP: Record<string, NRDayOfWeek> = {
+  SU: 'SUNDAY',
+  MO: 'MONDAY',
+  TU: 'TUESDAY',
+  WE: 'WEDNESDAY',
+  TH: 'THURSDAY',
+  FR: 'FRIDAY',
+  SA: 'SATURDAY',
+};
+
+const RRULE_FREQ_MAP: Record<string, NRMaintenanceRecurrence> = {
+  DAILY: 'DAILY',
+  WEEKLY: 'WEEKLY',
+  MONTHLY: 'MONTHLY',
+  YEARLY: 'MONTHLY', // closest DT equivalent; warn on encounter
+};
+
+/**
+ * Parse an RFC 5545 RRULE string into the fields the DT schema needs.
+ * Returns `undefined` when the rule is malformed. Unsupported parts
+ * (BYMONTH, BYSETPOS, COUNT, INTERVAL≠1) emit warnings via `collectWarnings`.
+ */
+export function parseRrule(
+  rrule: string,
+  collectWarnings: (message: string) => void,
+): { recurrence: NRMaintenanceRecurrence; daysOfWeek?: NRDayOfWeek[] } | undefined {
+  if (!rrule || !/FREQ=/i.test(rrule)) return undefined;
+  const parts: Record<string, string> = {};
+  for (const chunk of rrule.split(';')) {
+    const [rawK, rawV] = chunk.split('=');
+    if (!rawK || !rawV) continue;
+    parts[rawK.trim().toUpperCase()] = rawV.trim().toUpperCase();
+  }
+
+  const freq = parts['FREQ'];
+  if (!freq || !RRULE_FREQ_MAP[freq]) {
+    collectWarnings(`RRULE FREQ='${freq ?? '<missing>'}' is not supported; skipped.`);
+    return undefined;
+  }
+  if (freq === 'YEARLY') {
+    collectWarnings(
+      'RRULE FREQ=YEARLY has no direct DT equivalent; downgraded to MONTHLY. Review the schedule manually.',
+    );
+  }
+
+  const recurrence = RRULE_FREQ_MAP[freq];
+  let daysOfWeek: NRDayOfWeek[] | undefined;
+  if (parts['BYDAY']) {
+    const days: NRDayOfWeek[] = [];
+    for (const token of parts['BYDAY'].split(',')) {
+      // Strip position prefix (e.g. "2MO" → "MO")
+      const stripped = token.replace(/^[+-]?\d+/, '');
+      const mapped = RRULE_DAY_MAP[stripped];
+      if (mapped) days.push(mapped);
+      else collectWarnings(`RRULE BYDAY token '${token}' not recognized; skipped.`);
+    }
+    if (days.length > 0) daysOfWeek = days;
+  }
+
+  if (parts['INTERVAL'] && parts['INTERVAL'] !== '1') {
+    collectWarnings(
+      `RRULE INTERVAL=${parts['INTERVAL']} is not honored by DT's scheduleType enum; emitted as single-step recurrence. Re-model as multiple windows if needed.`,
+    );
+  }
+  for (const unsupported of ['BYMONTH', 'BYSETPOS', 'BYMONTHDAY', 'COUNT', 'UNTIL']) {
+    if (parts[unsupported]) {
+      collectWarnings(
+        `RRULE ${unsupported}=${parts[unsupported]} has no DT equivalent; ignored.`,
+      );
+    }
+  }
+
+  return daysOfWeek ? { recurrence, daysOfWeek } : { recurrence };
+}
+
 // ---------------------------------------------------------------------------
 // MaintenanceWindowTransformer
 // ---------------------------------------------------------------------------
@@ -104,8 +184,17 @@ export class MaintenanceWindowTransformer {
       }
       const warnings: string[] = [];
       const name = input.name ?? `[Migrated ${input.kind}]`;
-      const recurrence = input.recurrence ?? 'ONCE';
       const suppression = input.suppressionMode ?? 'DETECT_PROBLEMS_DONT_ALERT';
+
+      let recurrence: NRMaintenanceRecurrence = input.recurrence ?? 'ONCE';
+      let daysOfWeekFromRrule: NRDayOfWeek[] | undefined;
+      if (input.rrule) {
+        const parsed = parseRrule(input.rrule, (w) => warnings.push(w));
+        if (parsed) {
+          recurrence = parsed.recurrence;
+          daysOfWeekFromRrule = parsed.daysOfWeek;
+        }
+      }
 
       if (input.kind === 'MUTE_RULE' && !input.muteNrql) {
         warnings.push('MUTE_RULE without NRQL — emitted a global maintenance window.');
@@ -128,8 +217,8 @@ export class MaintenanceWindowTransformer {
           startDate,
           ...(input.endDate ? { endDate: input.endDate } : {}),
         },
-        ...(recurrence === 'WEEKLY' && input.daysOfWeek
-          ? { daysOfWeek: input.daysOfWeek }
+        ...(recurrence === 'WEEKLY' && (daysOfWeekFromRrule ?? input.daysOfWeek)
+          ? { daysOfWeek: daysOfWeekFromRrule ?? input.daysOfWeek }
           : {}),
       };
 
