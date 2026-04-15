@@ -256,9 +256,14 @@ export { CloudIntegrationTransformer } from './cloud-integration.transformer.js'
 export type {
   NRCloudProvider,
   NRCloudIntegrationInput,
+  NRCloudServiceConfig,
+  NRAwsIngestMode,
   CloudIntegrationTransformData,
   DTCloudIntegration,
   DTCloudService,
+  DTCloudIntegrationAwsScope,
+  DTCloudIntegrationAzureScope,
+  DTCloudIntegrationGcpScope,
 } from './cloud-integration.transformer.js';
 
 // Lambda transformer (Gen3)
@@ -274,8 +279,14 @@ export type {
 export { KubernetesTransformer } from './kubernetes.transformer.js';
 export type {
   NRKubernetesClusterInput,
+  NRKubernetesMode,
+  NRKubernetesResources,
+  NRKubernetesResourceLimits,
+  NRKubernetesToleration,
+  NRActiveGateCapability,
   KubernetesTransformData,
   DTDynaKubeManifest,
+  DTDynaKubeOneAgentSpec,
 } from './kubernetes.transformer.js';
 
 // Custom event transformer (Gen3)

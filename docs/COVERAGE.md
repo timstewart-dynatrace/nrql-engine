@@ -86,16 +86,16 @@
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
 | `SystemSample` / `ProcessSample` / `NetworkSample` / `StorageSample` | `timeseries` on `dt.host.*` / `dt.process.*` | compiler (DEFAULT_METRIC_MAP) | ✅ metric names auto-rewritten |
-| AWS integration config | DT AWS cloud integration (settings) | transformers/cloud-integration | 🟡 thin per-provider shell; no per-service polling freq / metric-stream vs polling / namespace allow-list (Phase 08) |
-| Azure integration config | DT Azure integration | transformers/cloud-integration | 🟡 (Phase 08 — resource-group scope, subscription allowlist) |
-| GCP integration config | DT GCP integration | transformers/cloud-integration | 🟡 (Phase 08 — multi-project, service-account details) |
-| AWS Lambda integration | DT Lambda extension config | transformers/lambda | 🟡 per-runtime layer pointer; no IAM / per-region layer-ARN table (Phase 08) |
+| AWS integration config | DT AWS cloud integration (settings) | transformers/cloud-integration | ✅ per-service polling + tag allow/exclude lists + region scope + POLLING/METRIC_STREAM ingest mode selector |
+| Azure integration config | DT Azure integration | transformers/cloud-integration | ✅ subscription list + management group + resource-group allow/exclude |
+| GCP integration config | DT GCP integration | transformers/cloud-integration | ✅ multi-project list + service-account email |
+| AWS Lambda integration | DT Lambda extension config | transformers/lambda | ✅ resolvedLayerArn per-region + 27-region commercial-partition table |
 | On-host integrations (MySQL, Postgres, Redis, …) | DT extensions / OneAgent plugins | — | 🔴 Phase 10 |
-| CloudWatch Metric Streams (Kinesis) | DT AWS Metric Streams ingest | — | 🔴 Phase 08 |
-| Kubernetes integration | DT DynaKube | transformers/kubernetes | 🟡 emits DynaKube stub; no CSI / privileged / namespace-filter / resource-limits (Phase 08) |
-| Prometheus integration | DT Prometheus ingestion | transformers/prometheus | 🟡 remote-write + scrape; relabel rules not translated (Phase 08) |
+| CloudWatch Metric Streams (Kinesis) | DT AWS Metric Streams ingest | transformers/cloudwatch-metric-streams | ✅ settings + Firehose spec + IAM trust |
+| Kubernetes integration | DT DynaKube | transformers/kubernetes | ✅ full fidelity — mode selector, CSI, privileged, hostNetwork, resources, tolerations, nodeSelector, priorityClassName, ActiveGate replicas/capabilities, metadataEnrichment |
+| Prometheus integration | DT Prometheus ingestion | transformers/prometheus | ✅ remote-write + scrape + all 7 relabel actions (drop/keep/replace/labeldrop/labelkeep/labelmap; hashmod warns) |
 | StatsD ingestion | DT StatsD ingestion | transformers/statsd | 🟡 minimal ActiveGate pointer; no tag mapping detail (Phase 08) |
-| OpenTelemetry collector config | DT OTLP ingestion | transformers/otel-collector | 🟡 endpoint swap; no processor-pipeline translation (attributes / filter / batch / memory_limiter) (Phase 08) |
+| OpenTelemetry collector config | DT OTLP ingestion | transformers/otel-collector | ✅ endpoint + processor pipeline (attributes / filter / batch / memory_limiter / resource / unknown-passthrough) |
 | OpenTelemetry metrics pipeline (direct OTLP, non-collector) | DT OTLP metrics ingest + semconv mapping | — | 🔴 Phase 09 |
 | NR Flex (custom scripts) | OneAgent extensions / OTel collector | — | ⚫ script rewrite, not automatable |
 | Infra-agent log collection | OneAgent log collection | — | 🟡 reconfigure at forwarder level |
@@ -120,11 +120,11 @@
 | Log ingest (Fluent Bit / Fluentd / Filebeat) | DT log ingest / OneAgent | — | 🟡 reconfigure forwarders (doc-level) |
 | Log API (HTTP POST) | DT Generic Log Ingest API | — | 🟡 endpoint change |
 | Drop rules (v1 NRQL) | OpenPipeline filter processors | transformers/drop-rule | ✅ |
-| Drop Filter Rules v2 (attribute-scoped) | OpenPipeline attribute-drop | — | 🔴 Phase 08 |
+| Drop Filter Rules v2 (attribute-scoped) | OpenPipeline attribute-drop | transformers/drop-rule (transformV2) | ✅ DROP_DATA / DROP_ATTRIBUTES / KEEP_ATTRIBUTES across 4 pipelines |
 | Log Live Archive (tiered long-term) | Grail cold bucket + retention | — | 🔴 Phase 10 |
 | Streaming Exports (AWS Kinesis / Azure EH / GCP PubSub) | Grail → OpenPipeline HTTP egress | — | 🔴 Phase 10 |
 | Parsing rules (Grok) | OpenPipeline DPL parsers | transformers/log-parsing | ✅ |
-| Obfuscation rules (PII / PAN masking) | OpenPipeline masking processors | transformers/log-obfuscation | 🟡 fixed pattern list; customer regex rules pass-through only — need PCRE→DPL translator (Phase 08) |
+| Obfuscation rules (PII / PAN masking) | OpenPipeline masking processors | transformers/log-obfuscation | ✅ built-in category patterns + PCRE→DPL translator (12 feature detectors, inline-flag strip, (?<name>) normalization) |
 | Log patterns (auto-clustering) | DT log pattern recognition | — | ⚫ platform feature |
 | Log alerting (NRQL on logs) | Metric Event on DQL over `fetch logs` | compiler + alert | 🟡 depends on alert Gen3 rewrite (Phase 02) |
 | Log partitions (data partitions) | Grail buckets | — | 🟡 documented, no auto-creation |
@@ -167,7 +167,7 @@
 | Issues & incidents | Davis Problems | — | ⚫ auto-detected; concept mapping only |
 | Decisions (correlation rules) | Davis causal engine | — | ⚫ Davis replaces manual decisions |
 | NR Workflows (for incident routing, classic) | DT Gen3 Workflows | transformers/aiops | ✅ |
-| NR Workflows v2 (new UI, different shape) | DT Gen3 Workflows | transformers/aiops | 🟡 v2 input shape not handled (Phase 08) |
+| NR Workflows v2 (new UI, different shape) | DT Gen3 Workflows | transformers/aiops (transformV2) | ✅ predicate translation + mutingRulesHandling + enrichments + destinationConfigurations |
 | Suppression / Golden Signal tuning | Davis anomaly settings | — | 🔴 Phase 10 |
 | Destinations (webhook targets) | Workflow tasks | transformers/aiops + transformers/notification | ✅ |
 | Enrichments (NRQL-based context injection) | Workflow enrichment steps | transformers/aiops | ✅ emits `dynatrace.automations:run-query` tasks with NRQL-to-DQL TODO placeholders |

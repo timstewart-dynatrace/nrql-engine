@@ -1,17 +1,16 @@
 /**
  * Cloud Integration Transformer — Converts New Relic AWS / Azure / GCP
- * integration configs to Dynatrace Gen3 cloud integration settings.
+ * integration configs to Dynatrace Gen3 cloud integration settings at
+ * full per-service fidelity.
  *
- * Gen3 schemas:
- *   - AWS   → `builtin:cloud.aws`
- *   - Azure → `builtin:cloud.azure`
- *   - GCP   → `builtin:cloud.gcp`
- *
- * Each provider has account/subscription/project-level identity plus a
- * list of monitored services (EC2, Lambda, RDS, App Service, Cloud SQL,
- * …). IAM roles, app registrations, service-account JSON keys cannot
- * be transferred — they must be re-provisioned in Dynatrace and
- * flagged as manual steps.
+ * Per-service options preserved:
+ *   - Polling interval (global + per-service override)
+ *   - Tag / namespace / resource-group allowlist + excludelist
+ *   - Region restriction (AWS) / subscription scope (Azure) /
+ *     multi-project list (GCP)
+ *   - Metric-stream vs polling ingestion selector (AWS)
+ *   - Private-endpoint / Log Analytics workspace references (Azure)
+ *   - Service-account email / federation source (GCP)
  */
 
 import type { TransformResult } from './types.js';
@@ -23,21 +22,83 @@ import { success, failure } from './types.js';
 
 export type NRCloudProvider = 'AWS' | 'AZURE' | 'GCP';
 
+export type NRAwsIngestMode = 'POLLING' | 'METRIC_STREAM';
+
+export interface NRCloudServiceConfig {
+  /** NR service key, e.g. `aws_ec2`, `azure_vm`, `gcp_gke`. */
+  readonly service: string;
+  readonly enabled?: boolean;
+  /** Override the global polling interval for this service. */
+  readonly pollingIntervalSeconds?: number;
+  /** AWS-only: which namespace(s) to consume (if service supports multiple). */
+  readonly namespaces?: string[];
+  /** Allow-list of tags / labels; keys are cloud-native (e.g., 'Environment'). */
+  readonly tagAllowlist?: Record<string, string[]>;
+  readonly tagExcludelist?: Record<string, string[]>;
+  /** Resource-id allowlist (ARNs / resource IDs). */
+  readonly resourceAllowlist?: string[];
+}
+
 export interface NRCloudIntegrationInput {
   readonly provider: NRCloudProvider;
   readonly name?: string;
-  /** AWS account id / Azure subscription id / GCP project id */
+  /** AWS account id / Azure subscription id / GCP project id. */
   readonly accountId?: string;
   /** NR-side auth reference (IAM role arn, client id, service-account email). Never transferable. */
   readonly authReference?: string;
+  /** Legacy: simple service-enable list (back-compat). Each string maps through SERVICE_MAP. */
   readonly enabledServices?: string[];
-  /** Optional metric polling interval in seconds. */
+  /** Rich per-service configuration. Takes precedence over enabledServices. */
+  readonly services?: NRCloudServiceConfig[];
   readonly pollingIntervalSeconds?: number;
+
+  // ─── AWS-specific ────────────────────────────────────────────────────
+  readonly awsRegions?: string[];
+  readonly awsIngestMode?: NRAwsIngestMode;
+  readonly awsExcludedRegions?: string[];
+
+  // ─── Azure-specific ──────────────────────────────────────────────────
+  readonly azureResourceGroups?: string[];
+  readonly azureExcludedResourceGroups?: string[];
+  readonly azureManagementGroupId?: string;
+  readonly azureSubscriptions?: string[];
+
+  // ─── GCP-specific ────────────────────────────────────────────────────
+  readonly gcpProjects?: string[];
+  readonly gcpServiceAccountEmail?: string;
 }
 
 // ---------------------------------------------------------------------------
 // Gen3 output
 // ---------------------------------------------------------------------------
+
+export interface DTCloudService {
+  readonly serviceName: string;
+  readonly enabled: boolean;
+  readonly pollingIntervalSeconds?: number;
+  readonly namespaces?: string[];
+  readonly tagAllowlist?: Record<string, string[]>;
+  readonly tagExcludelist?: Record<string, string[]>;
+  readonly resourceAllowlist?: string[];
+}
+
+export interface DTCloudIntegrationAwsScope {
+  readonly regions: string[];
+  readonly excludedRegions: string[];
+  readonly ingestMode: NRAwsIngestMode;
+}
+
+export interface DTCloudIntegrationAzureScope {
+  readonly subscriptions: string[];
+  readonly resourceGroups: string[];
+  readonly excludedResourceGroups: string[];
+  readonly managementGroupId: string | undefined;
+}
+
+export interface DTCloudIntegrationGcpScope {
+  readonly projects: string[];
+  readonly serviceAccountEmail: string | undefined;
+}
 
 export interface DTCloudIntegration {
   readonly schemaId: 'builtin:cloud.aws' | 'builtin:cloud.azure' | 'builtin:cloud.gcp';
@@ -47,11 +108,9 @@ export interface DTCloudIntegration {
   readonly enabled: boolean;
   readonly services: DTCloudService[];
   readonly pollingIntervalSeconds: number;
-}
-
-export interface DTCloudService {
-  readonly serviceName: string;
-  readonly enabled: boolean;
+  readonly awsScope?: DTCloudIntegrationAwsScope;
+  readonly azureScope?: DTCloudIntegrationAzureScope;
+  readonly gcpScope?: DTCloudIntegrationGcpScope;
 }
 
 export interface CloudIntegrationTransformData {
@@ -75,6 +134,13 @@ const SERVICE_MAP: Record<NRCloudProvider, Record<string, string>> = {
     aws_sqs: 'sqs',
     aws_sns: 'sns',
     aws_apigateway: 'apigateway',
+    aws_ecs: 'ecs',
+    aws_fargate: 'fargate',
+    aws_elasticache: 'elasticache',
+    aws_route53: 'route53',
+    aws_kinesis: 'kinesis',
+    aws_firehose: 'firehose',
+    aws_stepfunctions: 'stepfunctions',
     cloudwatch: 'cloudwatch',
   },
   AZURE: {
@@ -85,6 +151,12 @@ const SERVICE_MAP: Record<NRCloudProvider, Record<string, string>> = {
     azure_functions: 'functions',
     azure_storage: 'storage',
     azure_monitor: 'azure_monitor',
+    azure_cosmosdb: 'cosmos_db',
+    azure_servicebus: 'service_bus',
+    azure_keyvault: 'key_vault',
+    azure_eventhubs: 'event_hubs',
+    azure_loadbalancer: 'load_balancer',
+    azure_applicationgateway: 'application_gateway',
   },
   GCP: {
     gcp_gce: 'compute_engine',
@@ -93,6 +165,12 @@ const SERVICE_MAP: Record<NRCloudProvider, Record<string, string>> = {
     gcp_bigquery: 'bigquery',
     gcp_functions: 'cloud_functions',
     gcp_monitoring: 'cloud_monitoring',
+    gcp_cloudrun: 'cloud_run',
+    gcp_pubsub: 'pubsub',
+    gcp_spanner: 'spanner',
+    gcp_bigtable: 'bigtable',
+    gcp_appengine: 'app_engine',
+    gcp_cloudstorage: 'cloud_storage',
   },
 };
 
@@ -106,17 +184,19 @@ const MANUAL_STEPS: Record<NRCloudProvider, string[]> = {
   AWS: [
     'Re-create the AWS IAM role granting Dynatrace read-only access (sts:AssumeRole with the DT trust policy). The NR IAM role arn is not transferable.',
     'Paste the new IAM role arn into the Dynatrace AWS integration; DT validates by calling sts:GetCallerIdentity.',
-    'If the NR integration used CloudWatch Metric Streams, recreate the Kinesis Firehose delivery stream against DT (or migrate to the DT-managed polling path).',
+    'If the NR integration used CloudWatch Metric Streams, use CloudWatchMetricStreamsTransformer to emit the Firehose + IAM spec, or switch ingestMode to POLLING.',
+    'Apply the per-service tag allow-list through the DT AWS integration settings UI (the engine emits the shape; DT applies it).',
   ],
   AZURE: [
-    'Create a new Azure AD app registration with the Reader role on the target subscription. NR client credentials are not transferable.',
+    'Create a new Azure AD app registration with the Reader role on every target subscription. NR client credentials are not transferable.',
     'Record the tenantId, clientId, and clientSecret into the Dynatrace Azure integration.',
-    'Grant Monitoring Reader on any management group if the integration spans multiple subscriptions.',
+    'If integration spans multiple subscriptions, grant Monitoring Reader at the management-group level (managementGroupId is surfaced on the emitted scope).',
+    'Resource-group allow/exclude lists must be applied per subscription via the DT Azure integration UI.',
   ],
   GCP: [
     'Create a new GCP service account with the Monitoring Viewer + Cloud Asset Viewer roles. NR service-account JSON keys are not transferable.',
-    'Upload the service-account JSON key into the Dynatrace GCP integration.',
-    'If the NR integration monitored multiple projects, list each project id explicitly in the DT integration.',
+    'Upload the service-account JSON key into the Dynatrace GCP integration, or use workload-identity federation if you prefer keyless auth.',
+    'If the NR integration monitored multiple projects, list each project id explicitly (gcpProjects on input).',
   ],
 };
 
@@ -143,9 +223,42 @@ export class CloudIntegrationTransformer {
       const warnings: string[] = [];
       const displayName = input.name ?? `[Migrated] ${provider} ${accountId}`;
       const providerMap = SERVICE_MAP[provider];
+      const globalPolling = input.pollingIntervalSeconds ?? 60;
 
+      // Build services. Prefer the rich `services` array; fall back to
+      // `enabledServices` for backward compatibility.
       const services: DTCloudService[] = [];
-      for (const nrService of input.enabledServices ?? []) {
+      const richServices = input.services ?? [];
+      const simpleServices = input.enabledServices ?? [];
+
+      for (const svc of richServices) {
+        const dtService = providerMap[svc.service.toLowerCase()];
+        if (!dtService) {
+          warnings.push(
+            `NR service '${svc.service}' has no direct Dynatrace ${provider} mapping; enable the equivalent DT extension manually.`,
+          );
+          continue;
+        }
+        const out: DTCloudService = {
+          serviceName: dtService,
+          enabled: svc.enabled ?? true,
+          ...(svc.pollingIntervalSeconds !== undefined
+            ? { pollingIntervalSeconds: svc.pollingIntervalSeconds }
+            : {}),
+          ...(svc.namespaces?.length ? { namespaces: [...svc.namespaces] } : {}),
+          ...(svc.tagAllowlist ? { tagAllowlist: { ...svc.tagAllowlist } } : {}),
+          ...(svc.tagExcludelist ? { tagExcludelist: { ...svc.tagExcludelist } } : {}),
+          ...(svc.resourceAllowlist?.length
+            ? { resourceAllowlist: [...svc.resourceAllowlist] }
+            : {}),
+        };
+        services.push(out);
+      }
+
+      for (const nrService of simpleServices) {
+        if (richServices.some((s) => s.service.toLowerCase() === nrService.toLowerCase())) {
+          continue; // already covered by rich config
+        }
         const dtService = providerMap[nrService.toLowerCase()];
         if (dtService) {
           services.push({ serviceName: dtService, enabled: true });
@@ -156,6 +269,46 @@ export class CloudIntegrationTransformer {
         }
       }
 
+      // Provider-specific scope.
+      let awsScope: DTCloudIntegrationAwsScope | undefined;
+      let azureScope: DTCloudIntegrationAzureScope | undefined;
+      let gcpScope: DTCloudIntegrationGcpScope | undefined;
+
+      if (provider === 'AWS') {
+        awsScope = {
+          regions: input.awsRegions ?? [],
+          excludedRegions: input.awsExcludedRegions ?? [],
+          ingestMode: input.awsIngestMode ?? 'POLLING',
+        };
+        if (awsScope.regions.length === 0) {
+          warnings.push(
+            'No awsRegions provided — the integration will default to every enabled region. Explicit region allowlist is recommended.',
+          );
+        }
+        if (awsScope.ingestMode === 'METRIC_STREAM') {
+          warnings.push(
+            'ingestMode=METRIC_STREAM selected — pair this integration with CloudWatchMetricStreamsTransformer output to provision the Firehose side.',
+          );
+        }
+      } else if (provider === 'AZURE') {
+        azureScope = {
+          subscriptions: input.azureSubscriptions ?? [accountId],
+          resourceGroups: input.azureResourceGroups ?? [],
+          excludedResourceGroups: input.azureExcludedResourceGroups ?? [],
+          managementGroupId: input.azureManagementGroupId,
+        };
+        if ((input.azureSubscriptions?.length ?? 0) > 1 && !input.azureManagementGroupId) {
+          warnings.push(
+            'Multi-subscription Azure integration detected but no managementGroupId supplied. Grant Monitoring Reader at the management-group level to avoid per-subscription role assignments.',
+          );
+        }
+      } else {
+        gcpScope = {
+          projects: input.gcpProjects ?? [accountId],
+          serviceAccountEmail: input.gcpServiceAccountEmail,
+        };
+      }
+
       const integration: DTCloudIntegration = {
         schemaId: SCHEMA_MAP[provider],
         displayName,
@@ -163,11 +316,13 @@ export class CloudIntegrationTransformer {
         accountId,
         enabled: true,
         services,
-        pollingIntervalSeconds: input.pollingIntervalSeconds ?? 60,
+        pollingIntervalSeconds: globalPolling,
+        ...(awsScope ? { awsScope } : {}),
+        ...(azureScope ? { azureScope } : {}),
+        ...(gcpScope ? { gcpScope } : {}),
       };
 
       const manualSteps = MANUAL_STEPS[provider];
-
       return success({ integration, manualSteps }, [...warnings, ...manualSteps]);
     } catch (err) {
       return failure([`Transformation error: ${String(err)}`]);

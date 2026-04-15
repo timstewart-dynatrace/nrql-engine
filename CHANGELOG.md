@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 08 — depth passes on shipped transformers)
+
+All ten P08-NN work items landed. Every previously ✅* / 🟡 row from the Phase 07 audit flipped to plain ✅.
+
+- **P08-05 Lambda per-region layer ARN** — `resolvedLayerArn` field per function, 27-region commercial-partition allowlist, GovCloud/China warn + omit.
+- **P08-02 Prometheus relabel-rule translator** — all 7 Prometheus relabel actions → OpenPipeline metric processors (drop/keep/replace/labeldrop/labelkeep/labelmap; hashmod warned). Multi-label source concat with separator. Structured `relabelConfigs[]` input alongside legacy `relabelRules[]` passthrough.
+- **P08-07 Drop Filter Rules v2** — new `transformV2()` method accepts attribute-scoped rules across 4 pipelines; emits OpenPipeline drop / fieldsRemove / fieldsKeep processors.
+- **P08-10 Notification Policies v2 routing** — new `routing` input (policyName / entityTags / severityAtLeast) emits a per-task `filter` DPL expression on the DTWorkflowTask.
+- **P08-09 CloudWatch Metric Streams** — new `CloudWatchMetricStreamsTransformer` emits `builtin:aws.metric-streams` + Firehose delivery-stream spec + IAM trust statement.
+- **P08-08 NR Workflows v2** — `transformV2()` on AIOpsTransformer accepts the new NerdGraph shape (workflowEnabled + destinationsEnabled + mutingRulesHandling + predicates + enrichments.nrqlEnrichments/dashboardEnrichments + destinationConfigurations).
+- **P08-03 OTel collector processor pipeline** — `processors` input compiles to an ordered `processorPipeline` (attributes / filter / batch / memory_limiter / resource / unknown).
+- **P08-06 PCRE→DPL translator** — exported `pcreToDpl()` detects 12 non-RE2 features (lookbehind, lookahead, named/numeric backrefs, atomic groups, possessive quantifiers, Unicode property escapes, backtracking verbs, recursion, branch reset, inline comments, PCRE escapes). Downgrades atomic groups, strips possessive quantifiers, strips inline flags, normalizes named groups to RE2 syntax. Consumed by `LogObfuscationTransformer` for CUSTOM rules.
+- **P08-04 DynaKube full fidelity** — DT Kubernetes manifest now emits mode selector (cloudNative/classic/application/host monitoring), CSI toggle, privileged, hostNetwork, per-component resources (requests+limits), tolerations, nodeSelector, priorityClassName, ActiveGate replicas/resources/capabilities, metadataEnrichment, annotations, labels, custom apiUrl.
+- **P08-01 Cloud integration per-service fidelity** — new rich `services[]` input (polling override + namespaces + tag allow/exclude + resource allowlist per service) alongside legacy `enabledServices[]`. AWS gains region allowlist + ingestMode (POLLING / METRIC_STREAM). Azure gains multi-subscription + resource-group scope + managementGroupId. GCP gains multi-project list + service-account email. Service catalog expanded (AWS +8 services, Azure +6, GCP +6).
+
+Tests: 1016 → 1099 (+83). Typecheck clean.
+
 ### Changed (Phase 06 — compiler infra metric-name rewriting)
 
 - `NRQLCompiler` now applies a built-in NR → DT metric-name map to `timeseries`-style queries against `SystemSample` / `ProcessSample` / `NetworkSample` / `StorageSample`, so `SELECT average(cpuPercent) FROM SystemSample` now emits `timeseries avg(dt.host.cpu.usage)` rather than preserving the NR metric name literally. The map is exported as `DEFAULT_METRIC_MAP` and covers CPU / memory / disk / network / load-average metrics plus the process-level equivalents. Consumer-supplied `metricMap` options still override the defaults.
