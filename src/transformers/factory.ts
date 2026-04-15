@@ -37,6 +37,15 @@ import { DropRuleTransformer } from './drop-rule.transformer.js';
 import { InfrastructureTransformer } from './infrastructure.transformer.js';
 import { LogParsingTransformer } from './log-parsing.transformer.js';
 
+// Phase 14 Gen2-only fallbacks — Gen3 has no equivalent, so the
+// default path for these kinds is the Legacy class itself; the
+// `legacy` flag is ignored (`legacy-only: true`).
+import { LegacyErrorInboxTransformer } from './legacy-error-inbox.transformer.js';
+import { LegacyNonNrqlAlertConditionTransformer } from './legacy-non-nrql-alert.transformer.js';
+import { LegacyRequestNamingTransformer } from './legacy-request-naming.transformer.js';
+import { LegacyCloudIntegrationTransformer } from './legacy-cloud-integration.transformer.js';
+import { LegacyApdexTransformer } from './legacy-apdex.transformer.js';
+
 // ---------------------------------------------------------------------------
 // Factory
 // ---------------------------------------------------------------------------
@@ -52,7 +61,15 @@ export type TransformerKind =
   // Gen3-only kinds (no Legacy sibling — Gen3-native from the start)
   | 'drop-rule'
   | 'infrastructure'
-  | 'log-parsing';
+  | 'log-parsing'
+  // Phase 14 Gen2-only fallbacks (no Gen3 equivalent exists; the
+  // returned class is always the Legacy* one even when `legacy` is
+  // false — the flag is ignored here).
+  | 'error-inbox'
+  | 'non-nrql-alert-legacy'
+  | 'request-naming'
+  | 'cloud-integration-legacy'
+  | 'apdex';
 
 export interface CreateTransformerOptions {
   /** When true, return the `Legacy*` variant (classic Gen2 shapes). */
@@ -98,6 +115,18 @@ export function createTransformer(
       return new InfrastructureTransformer();
     case 'log-parsing':
       return new LogParsingTransformer();
+    // Gen2-only fallbacks (Phase 14). The flag is ignored — these
+    // kinds only have a Legacy variant.
+    case 'error-inbox':
+      return new LegacyErrorInboxTransformer();
+    case 'non-nrql-alert-legacy':
+      return new LegacyNonNrqlAlertConditionTransformer();
+    case 'request-naming':
+      return new LegacyRequestNamingTransformer();
+    case 'cloud-integration-legacy':
+      return new LegacyCloudIntegrationTransformer();
+    case 'apdex':
+      return new LegacyApdexTransformer();
     default:
       throw new Error(`Unknown transformer kind '${kind as string}'`);
   }

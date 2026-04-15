@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Accumulating toward **v2.0.0**. The branch now carries every Phase 01–12 deliverable: 46 Gen3 transformers, 7 Legacy opt-in classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers. Test count 838 → 1295 (+457). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+Accumulating toward **v2.0.0**. The branch now carries every Phase 01–14 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers. Test count 838 → 1324 (+486). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+
+### Added (Phase 14 — Gen2 fallbacks for D-band items)
+
+Closes `⚫` / D-band rows where classic Dynatrace offers a path even though Gen3 does not. All five ship as `Legacy*` classes routed through the uniform factory.
+
+- **P14-01 `LegacyErrorInboxTransformer`** — NR Errors-Inbox state (status / assignee / comments) → classic DT Problem action list (`POST /api/v2/problems/{id}/comments` + `/close`). Emits `POST_COMMENT`, `POST_COMMENT_UNBOUND` (when problem ids aren't resolved yet), and `ACKNOWLEDGE` action kinds. Status RESOLVED / IGNORED close the problem; WORK_IN_PROGRESS emits a progress comment; assignee lands as an `[...]:assignee` comment. Kind: `error-inbox`.
+- **P14-02 `LegacyNonNrqlAlertConditionTransformer`** — non-NRQL conditions (APM / Infra / Synth / Browser / Mobile / ExternalService) → classic `builtin:alerting.profile` + `builtin:anomaly-detection.metric-events` pair without the Gen3 Workflow wrap. Kind: `non-nrql-alert-legacy`.
+- **P14-03 `LegacyRequestNamingTransformer`** — `newrelic.setTransactionName(category, name)` call sites → `builtin:request-naming.request-naming-rules` entries with service.name / http.method / http.request.path conditions. Kind: `request-naming`.
+- **P14-04 `LegacyCloudIntegrationTransformer`** — NR AWS / Azure / GCP integrations → classic `/api/config/v1/aws/credentials` / `/azure/credentials` / `/gcp/credentials` payloads. Distinct service-name map (AWS_DEFAULT / AZURE / GCP v1 conventions). Kind: `cloud-integration-legacy`.
+- **P14-05 `LegacyApdexTransformer`** — NR Apdex T-values → `builtin:apdex.service-apdex-calculation` per-service overrides in ms (tolerated + frustrated). Lifts Apdex from LOW-confidence compiler decomposition to deterministic classic-settings output. Kind: `apdex`.
+
+Factory: 5 new kinds (`error-inbox`, `non-nrql-alert-legacy`, `request-naming`, `cloud-integration-legacy`, `apdex`) added to `TransformerKind`. These are Gen2-only — the `legacy` flag is ignored for them.
+
+Tests: 1295 → 1324 (+29). Typecheck clean.
+
 
 Entries below are preserved in reverse chronological order (newest phase first) for reviewers. On release they collapse under a single `## [2.0.0] - YYYY-MM-DD` heading.
 

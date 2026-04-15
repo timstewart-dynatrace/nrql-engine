@@ -243,6 +243,48 @@ export type {
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
 
+// Phase 14 Gen2-only fallbacks (no Gen3 equivalent)
+export { LegacyErrorInboxTransformer } from './legacy-error-inbox.transformer.js';
+export type {
+  NRErrorStatus,
+  NRErrorComment,
+  NRErrorInboxRecord,
+  LegacyProblemAction,
+  LegacyErrorInboxTransformData,
+} from './legacy-error-inbox.transformer.js';
+
+export { LegacyNonNrqlAlertConditionTransformer } from './legacy-non-nrql-alert.transformer.js';
+export type {
+  LegacyAlertingProfileStub,
+  LegacyClassicMetricEvent,
+  LegacyNonNrqlAlertTransformData,
+} from './legacy-non-nrql-alert.transformer.js';
+
+export { LegacyRequestNamingTransformer } from './legacy-request-naming.transformer.js';
+export type {
+  NRSetTransactionNameSite,
+  NRRequestNamingInput,
+  LegacyDTRequestNamingRule,
+  LegacyRequestNamingTransformData,
+} from './legacy-request-naming.transformer.js';
+
+export { LegacyCloudIntegrationTransformer } from './legacy-cloud-integration.transformer.js';
+export type {
+  LegacyAwsCredentialsConfig,
+  LegacyAzureCredentialsConfig,
+  LegacyGcpCredentialsConfig,
+  LegacyCloudIntegrationPayload,
+  LegacyCloudIntegrationTransformData,
+} from './legacy-cloud-integration.transformer.js';
+
+export { LegacyApdexTransformer } from './legacy-apdex.transformer.js';
+export type {
+  NRApdexOverride,
+  NRApdexInput,
+  LegacyApdexCalculationSetting,
+  LegacyApdexTransformData,
+} from './legacy-apdex.transformer.js';
+
 // Legacy (Gen2) dashboard / slo / synthetic — opt-in via factory
 export { LegacyDashboardTransformer } from './legacy-dashboard.transformer.js';
 export type {
