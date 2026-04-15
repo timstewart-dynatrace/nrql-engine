@@ -243,6 +243,53 @@ export type {
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
 
+// Vulnerability Management transformer (Gen3)
+export { VulnerabilityManagementTransformer } from './vulnerability.transformer.js';
+export type {
+  NRVulnSeverity,
+  NRVulnMuteRule,
+  NRVulnLicensePolicy,
+  NRVulnManagementInput,
+  VulnerabilityTransformData,
+  DTRvaSettings,
+  DTRvaMutingRule,
+} from './vulnerability.transformer.js';
+
+// Network Performance Monitoring transformer (Gen3)
+export { NpmTransformer } from './npm.transformer.js';
+export type {
+  NRSnmpVersion,
+  NRNpmSnmpDevice,
+  NRNpmNetFlowCollector,
+  NRNpmInput,
+  NpmTransformData,
+  DTSnmpExtensionConfig,
+  DTNetflowIngestConfig,
+} from './npm.transformer.js';
+
+// AI Monitoring / MLM transformer (Gen3)
+export { AiMonitoringTransformer } from './ai-monitoring.transformer.js';
+export type {
+  NRAiModelVendor,
+  NRAiModelEntry,
+  NRAiAttributeMapping,
+  NRAiMonitoringInput,
+  AiMonitoringTransformData,
+  DTAiModelRegistryEntry,
+  DTAiBizeventIngestRule,
+} from './ai-monitoring.transformer.js';
+
+// Custom instrumentation translator (Gen3)
+export { CustomInstrumentationTransformer } from './custom-instrumentation.transformer.js';
+export type {
+  NRInstrumentationLanguage,
+  NRInstrumentationInput,
+  NRApiCategory,
+  ReplacementConfidence,
+  TranslationSuggestion,
+  CustomInstrumentationTransformData,
+} from './custom-instrumentation.transformer.js';
+
 // Specialized synthetic monitors (cert check + broken links)
 export {
   SyntheticCertificateCheckTransformer,

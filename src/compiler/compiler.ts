@@ -145,6 +145,13 @@ export class NRQLCompiler {
     result.confidence = confidence;
     result.confidenceScore = score;
 
+    // Phase 19: Positive-signal confidence uplift.
+    // When the emitter successfully produced known rewrites for apdex /
+    // COMPARE WITH / rate() / percentage(), a LOW/MEDIUM score is
+    // usually wrong because the output is valid DQL. Raise (never
+    // lower) the band to reflect that the signal was carried.
+    applyPhase19Uplift(result, nrql);
+
     return result;
   }
 
@@ -335,6 +342,73 @@ function buildNotes(warnings: string[], dql: string, ast: Query): TranslationNot
   }
 
   return notes;
+}
+
+/**
+ * Phase 19 uplift — raise a LOW/MEDIUM result to a higher band when the
+ * emitter successfully carried a known rewrite into the DQL. Only
+ * increases confidence, never decreases it. Appends a fix string
+ * prefixed with `phase19:` so operators can audit which signals fired.
+ */
+export function applyPhase19Uplift(
+  result: {
+    success: boolean;
+    dql: string;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+    confidenceScore: number;
+    fixes: string[];
+  },
+  originalNrql: string,
+): void {
+  if (!result.success) return;
+
+  const nrql = originalNrql.toLowerCase();
+  const dql = result.dql;
+  const signals: string[] = [];
+
+  // apdex(t) → countIf bucket decomposition (satisfied/tolerable/frustrated)
+  if (/\bapdex\s*\(/.test(nrql) && /countif\s*\(/i.test(dql)) {
+    signals.push('apdex → countIf buckets');
+  }
+
+  // COMPARE WITH → DQL shift: or from:now()-
+  if (/\bcompare\s+with\b/.test(nrql) && (dql.includes('shift:') || /from\s*:\s*now\(\)\s*-/.test(dql))) {
+    signals.push('COMPARE WITH → shift:/from:now()-');
+  }
+
+  // rate(count(*), N) → per-second expression in makeTimeseries / arithmetic
+  if (/\brate\s*\(\s*count/.test(nrql) && /\/\s*\d+/.test(dql)) {
+    signals.push('rate(count,N) → per-second expression');
+  }
+
+  // percentage(count, WHERE) → countIf / count * 100
+  // DQL may emit either `100.0 * countIf(...) / count()` or
+  // `countIf(...) / count() * 100`; accept either ordering.
+  if (
+    /\bpercentage\s*\(/.test(nrql) &&
+    /countif\s*\(/i.test(dql) &&
+    /\/\s*count\s*\(/i.test(dql) &&
+    /100(?:\.0+)?\s*\*|\*\s*100(?:\.0+)?/.test(dql)
+  ) {
+    signals.push('percentage → countIf/count*100');
+  }
+
+  if (signals.length === 0) return;
+
+  // Always record the audit trail so operators can see which rewrites
+  // were detected, even when the score was already at the ceiling.
+  for (const s of signals) {
+    result.fixes = [...result.fixes, `phase19: ${s} rewrite carried — uplifted confidence`];
+  }
+
+  // Raise floor by 15 points per signal; cap at 100 and never lower.
+  const bonus = Math.min(60, signals.length * 15);
+  const raised = Math.min(100, Math.max(result.confidenceScore, result.confidenceScore + bonus));
+  if (raised <= result.confidenceScore) return;
+
+  result.confidenceScore = raised;
+  if (raised >= 80) result.confidence = 'HIGH';
+  else if (raised >= 50 && result.confidence === 'LOW') result.confidence = 'MEDIUM';
 }
 
 function computeConfidence(
