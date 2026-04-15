@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 12 — Phase 11 back-port follow-ups)
+
+All four deferred P11 items shipped.
+
+- **P11-07 `createTransformer(kind, { legacy })` factory** — uniform routing between Gen3 defaults and `Legacy*` siblings. Supports 10 `TransformerKind` values; 7 have Legacy variants (alert, notification, tag, workload, dashboard, slo, synthetic); 3 are Gen3-only (drop-rule, infrastructure, log-parsing) and ignore the flag. `hasLegacyVariant()` + `LEGACY_SUPPORTED_KINDS` helpers exported alongside.
+- **P11-08 Additional Legacy transformers** — `LegacyDashboardTransformer` (classic `builtin:dashboards` with DATA_EXPLORER / MARKDOWN tiles + multi-page collapse warning), `LegacySLOTransformer` (v1 SLO payload with numerator/denominator), `LegacySyntheticTransformer` (classic `/api/v1/synthetic/monitors` HTTP / BROWSER / HTTP_MULTI_STEP shapes). All three emit a legacy warning on every call.
+- **P11-09 `toMonacoYaml()` pure-data helper** — Dynatrace Settings 2.0 envelope (`{ schemaId, displayName?, scope?, value }`) → Monaco configuration-as-code YAML string. Dependency-free YAML serializer. Supports single-envelope or array input, configurable indent, optional leading `---` document separator. Output includes the payload JSON as a comment for paste into the matching template file.
+- **P11-10 `getOtelEnvForDt()` + `formatOtelEnvAsDotenv()`** — data helpers returning the set of `OTEL_*` environment variables a service needs to push OTLP telemetry to a DT tenant. Covers endpoint (grpc + http/protobuf), region override, resource attributes (service.name + service.instance.id + deployment.environment + extras), signal toggles, and dotenv-format rendering.
+
+Tests: 1264 → 1295 (+31). Typecheck clean.
+
 ### Added (Phase 10 — specialized products + stretch)
 
 Closes the remaining 🔴 rows identified in the Phase 07 audit. Several

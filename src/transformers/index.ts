@@ -243,6 +243,39 @@ export type {
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
 
+// Legacy (Gen2) dashboard / slo / synthetic — opt-in via factory
+export { LegacyDashboardTransformer } from './legacy-dashboard.transformer.js';
+export type {
+  LegacyDTDashboard,
+  LegacyDTTile,
+} from './legacy-dashboard.transformer.js';
+export { LegacySLOTransformer } from './legacy-slo.transformer.js';
+export type { LegacyDTSloV1 } from './legacy-slo.transformer.js';
+export { LegacySyntheticTransformer } from './legacy-synthetic.transformer.js';
+export type {
+  LegacyDTSyntheticMonitor,
+} from './legacy-synthetic.transformer.js';
+
+// Uniform transformer factory (Gen3 default + legacy opt-in)
+export {
+  createTransformer,
+  hasLegacyVariant,
+  LEGACY_SUPPORTED_KINDS,
+} from './factory.js';
+export type {
+  TransformerKind,
+  CreateTransformerOptions,
+} from './factory.js';
+
+// Monaco YAML helper + OTel env helper (pure data)
+export { toMonacoYaml } from './monaco-yaml.js';
+export type {
+  DtSettingsEnvelope,
+  MonacoYamlOptions,
+} from './monaco-yaml.js';
+export { getOtelEnvForDt, formatOtelEnvAsDotenv } from './otel-env-helper.js';
+export type { OtelEnvOptions, OtelTransportProtocol } from './otel-env-helper.js';
+
 // Database Monitoring transformer (Gen3)
 export { DatabaseMonitoringTransformer } from './database-monitoring.transformer.js';
 export type {
