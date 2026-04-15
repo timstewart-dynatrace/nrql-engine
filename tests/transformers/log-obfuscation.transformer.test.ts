@@ -70,3 +70,94 @@ describe('LogObfuscationTransformer', () => {
     expect(result.data!.maskingStage.rules[1]!.enabled).toBe(false);
   });
 });
+
+describe('pcreToDpl', () => {
+  // Import via relative path handled through index.js barrel.
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  // We import at module scope above; no separate import needed.
+
+  it('should pass through simple patterns unchanged', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('foo\\d+bar');
+    expect(result.dpl).toBe('foo\\d+bar');
+    expect(result.unsupportedFeatures).toEqual([]);
+  });
+
+  it('should flag lookbehind', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('(?<=secret=)\\w+');
+    expect(result.unsupportedFeatures).toContain('lookbehind (?<=…)');
+  });
+
+  it('should flag lookahead and negative lookahead', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const positive = pcreToDpl('foo(?=bar)');
+    expect(positive.unsupportedFeatures).toContain('lookahead (?=…)');
+    const negative = pcreToDpl('foo(?!bar)');
+    expect(negative.unsupportedFeatures).toContain('negative lookahead (?!…)');
+  });
+
+  it('should flag named and numeric backreferences', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const named = pcreToDpl('(?<x>a)\\k<x>');
+    expect(named.unsupportedFeatures).toContain('named backreference \\k<…>');
+    const numeric = pcreToDpl('(a)\\1');
+    expect(numeric.unsupportedFeatures).toContain('numeric backreference \\N');
+  });
+
+  it('should flag Unicode property escapes', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('\\p{L}+');
+    expect(result.unsupportedFeatures).toContain('Unicode property escape \\p{…}');
+  });
+
+  it('should normalize (?<name>…) to (?P<name>…)', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('(?<user>[a-z]+)@example.com');
+    expect(result.dpl).toContain('(?P<user>');
+  });
+
+  it('should strip inline flag and warn', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('(?i)hello');
+    expect(result.dpl).toBe('hello');
+    expect(result.warnings.some((w) => w.includes('Inline flag'))).toBe(true);
+  });
+
+  it('should downgrade atomic group to non-capturing and flag', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('(?>foo|bar)');
+    expect(result.dpl).toBe('(?:foo|bar)');
+    expect(result.unsupportedFeatures).toContain('atomic group (?>…)');
+  });
+
+  it('should strip possessive quantifiers and flag', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('a++b');
+    expect(result.dpl).toBe('a+b');
+    expect(result.unsupportedFeatures).toContain('possessive quantifiers (*+, ++, ?+)');
+  });
+
+  it('should surface all flagged features in the warning', async () => {
+    const { pcreToDpl } = await import('../../src/transformers/index.js');
+    const result = pcreToDpl('(?<=foo)\\p{L}++');
+    expect(result.warnings.some((w) => w.includes('lookbehind'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('Unicode'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('possessive'))).toBe(true);
+  });
+});
+
+describe('LogObfuscationTransformer + PCRE translation', () => {
+  it('should translate CUSTOM rule using pcreToDpl and surface warnings', async () => {
+    const { LogObfuscationTransformer } = await import(
+      '../../src/transformers/index.js'
+    );
+    const t = new LogObfuscationTransformer();
+    const result = t.transform([
+      { category: 'CUSTOM', name: 'secret', regex: '(?<=secret=)\\w+' },
+    ]);
+    expect(result.data!.maskingStage.rules).toHaveLength(1);
+    expect(result.warnings.some((w) => w.includes('secret'))).toBe(true);
+    expect(result.warnings.some((w) => w.includes('lookbehind'))).toBe(true);
+  });
+});

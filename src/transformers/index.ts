@@ -124,9 +124,11 @@ export { OpenTelemetryCollectorTransformer } from './otel-collector.transformer.
 export type {
   NROtelSignal,
   NROtelCollectorInput,
+  NROtelProcessor,
   OtelCollectorTransformData,
   DTOtlpExporter,
   DTOtelIngestMapping,
+  DTOtelProcessorStep,
 } from './otel-collector.transformer.js';
 
 // Prometheus transformer (Gen3)
@@ -221,13 +223,14 @@ export type {
 } from './aiops.transformer.js';
 
 // Log obfuscation transformer (Gen3)
-export { LogObfuscationTransformer } from './log-obfuscation.transformer.js';
+export { LogObfuscationTransformer, pcreToDpl } from './log-obfuscation.transformer.js';
 export type {
   NRObfuscationCategory,
   NRObfuscationRule,
   LogObfuscationTransformData,
   DTOpenPipelineMaskingStage,
   DTOpenPipelineMaskingRule,
+  PcreToDplResult,
 } from './log-obfuscation.transformer.js';
 
 // Lookup table transformer (Gen3)

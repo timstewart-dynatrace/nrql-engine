@@ -56,6 +56,85 @@ export interface LogObfuscationTransformData {
 }
 
 // ---------------------------------------------------------------------------
+// PCRE → DPL translation
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a PCRE pattern into a DPL-compatible pattern string. DPL's
+ * regex dialect is a subset of RE2 (same as Go). We translate the
+ * common constructs and flag anything we drop. Unsupported features
+ * are enumerated in `unsupportedPcreFeatures` so the warning message
+ * tells the operator exactly what to re-express manually.
+ */
+export interface PcreToDplResult {
+  readonly dpl: string;
+  readonly warnings: string[];
+  readonly unsupportedFeatures: string[];
+}
+
+const UNSUPPORTED_PCRE_DETECTORS: Array<{ regex: RegExp; feature: string }> = [
+  { regex: /\(\?<=/, feature: 'lookbehind (?<=…)' },
+  { regex: /\(\?<!/, feature: 'negative lookbehind (?<!…)' },
+  { regex: /\(\?=/, feature: 'lookahead (?=…)' },
+  { regex: /\(\?!/, feature: 'negative lookahead (?!…)' },
+  { regex: /\\k</, feature: 'named backreference \\k<…>' },
+  { regex: /\\(\d{1,2})/, feature: 'numeric backreference \\N' },
+  { regex: /\(\?\#/, feature: 'inline comment (?#…)' },
+  { regex: /\(\?\|/, feature: 'branch reset (?|…)' },
+  { regex: /\(\?R\)|\(\?0\)/, feature: 'recursion (?R) / (?0)' },
+  { regex: /\\[pP]\{/, feature: 'Unicode property escape \\p{…}' },
+  { regex: /\(\*[A-Z]+/, feature: 'backtracking control verbs (*VERB)' },
+  { regex: /\\[GKQ]/, feature: 'PCRE escapes \\G / \\K / \\Q' },
+];
+
+export function pcreToDpl(pcre: string): PcreToDplResult {
+  const warnings: string[] = [];
+  const unsupportedFeatures: string[] = [];
+
+  for (const { regex, feature } of UNSUPPORTED_PCRE_DETECTORS) {
+    if (regex.test(pcre)) {
+      unsupportedFeatures.push(feature);
+    }
+  }
+
+  let dpl = pcre;
+
+  // Strip inline flag groups like `(?i)` and translate to warning; DPL
+  // uses a separate flag at the function call site, not inline.
+  const inlineFlagMatch = /^\(\?([imxsu-]+)\)/.exec(dpl);
+  if (inlineFlagMatch) {
+    warnings.push(
+      `Inline flag '(?${inlineFlagMatch[1]})' stripped — supply the equivalent as a matchesRegex(..., "i") argument or set pipeline-level case-sensitivity.`,
+    );
+    dpl = dpl.replace(/^\(\?[imxsu-]+\)/, '');
+  }
+
+  // Named groups: PCRE `(?P<name>…)` and `(?<name>…)` → RE2 uses `(?P<name>…)`.
+  dpl = dpl.replace(/\(\?<([A-Za-z_][A-Za-z0-9_]*)>/g, '(?P<$1>');
+
+  // Atomic groups `(?>…)` — RE2 does not support; strip to a non-capturing
+  // group and warn (semantics differ but input usually still matches).
+  if (/\(\?>/.test(dpl)) {
+    unsupportedFeatures.push('atomic group (?>…)');
+    dpl = dpl.replace(/\(\?>/g, '(?:');
+  }
+
+  // Possessive quantifiers a*+ a++ a?+ — strip the trailing + and warn.
+  if (/[*+?]\+/.test(dpl)) {
+    unsupportedFeatures.push('possessive quantifiers (*+, ++, ?+)');
+    dpl = dpl.replace(/([*+?])\+/g, '$1');
+  }
+
+  if (unsupportedFeatures.length > 0) {
+    warnings.push(
+      `PCRE features that do not translate cleanly to DPL/RE2: ${unsupportedFeatures.join('; ')}. Review the emitted pattern before enabling.`,
+    );
+  }
+
+  return { dpl, warnings, unsupportedFeatures };
+}
+
+// ---------------------------------------------------------------------------
 // Built-in patterns
 // ---------------------------------------------------------------------------
 
@@ -102,11 +181,10 @@ export class LogObfuscationTransformer {
             );
             continue;
           }
-          pattern = rule.regex;
-          if (/\(\?<=|\\k</.test(rule.regex)) {
-            warnings.push(
-              `Custom rule '${rule.name ?? '<unnamed>'}' uses PCRE features (lookbehind / backref) that may not be supported by OpenPipeline DPL — review before enabling.`,
-            );
+          const translated = pcreToDpl(rule.regex);
+          pattern = translated.dpl;
+          for (const w of translated.warnings) {
+            warnings.push(`Custom rule '${rule.name ?? '<unnamed>'}': ${w}`);
           }
         } else {
           pattern = BUILTIN_PATTERNS[rule.category];
