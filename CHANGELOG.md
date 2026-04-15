@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 05 — ingestion expansion)
+
+- `OpenTelemetryCollectorTransformer` — NR OTLP collector config → DT OTLP exporter (grpc/http) + `builtin:otel.ingest-mappings` settings stub. API token scopes (`openTelemetryTrace.ingest`, `metrics.ingest`, `logs.ingest`) flagged for re-provisioning.
+- `PrometheusTransformer` — NR Prometheus remote_write or scrape config → DT remote-write endpoint (`/api/v2/metrics/ingest/prometheus`) + `builtin:prometheus.scrape` targets list.
+- `StatsDTransformer` — NR StatsD ingestion → `builtin:statsd.ingest` via ActiveGate extension. Tag mappings preserved as dimensionMappings.
+
 ### Added (Phase 04 — alert completeness + compiler corpus)
 
 - `NonNrqlAlertConditionTransformer` — NR APM / APM_APP / INFRA_METRIC / INFRA_PROCESS / SYNTHETIC / BROWSER / MOBILE / EXTERNAL_SERVICE conditions (no NRQL source) → Gen3 Metric Events on mapped `builtin:*` metrics with per-product entity dimensions. Unmapped metrics emit a disabled placeholder with warning. Wires into AlertTransformer Workflows via `nr-migrated` entity tag.

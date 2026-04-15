@@ -86,9 +86,9 @@
 | AWS Lambda integration | DT Lambda extension config | transformers/lambda | ✅ |
 | On-host integrations (MySQL, Postgres, Redis, …) | DT extensions / OneAgent plugins | — | 🔴 Phase 04 |
 | Kubernetes integration | DT DynaKube | transformers/kubernetes | ✅ |
-| Prometheus integration | DT Prometheus ingestion | — | 🔴 Phase 04 |
-| StatsD ingestion | DT StatsD ingestion | — | 🔴 Phase 04 |
-| OpenTelemetry collector config | DT OTel ingestion | — | 🔴 Phase 04 |
+| Prometheus integration | DT Prometheus ingestion | transformers/prometheus | ✅ remote-write + scrape |
+| StatsD ingestion | DT StatsD ingestion | transformers/statsd | ✅ via ActiveGate extension |
+| OpenTelemetry collector config | DT OTLP ingestion | transformers/otel-collector | ✅ grpc + http endpoints |
 | NR Flex (custom scripts) | OneAgent extensions / OTel collector | — | ⚫ script rewrite, not automatable |
 | Infra-agent log collection | OneAgent log collection | — | 🟡 reconfigure at forwarder level |
 

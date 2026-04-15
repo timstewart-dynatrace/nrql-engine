@@ -118,6 +118,33 @@ export type {
   DTAutoTagRule,
 } from './tag.transformer.js';
 
+// OpenTelemetry collector transformer (Gen3)
+export { OpenTelemetryCollectorTransformer } from './otel-collector.transformer.js';
+export type {
+  NROtelSignal,
+  NROtelCollectorInput,
+  OtelCollectorTransformData,
+  DTOtlpExporter,
+  DTOtelIngestMapping,
+} from './otel-collector.transformer.js';
+
+// Prometheus transformer (Gen3)
+export { PrometheusTransformer } from './prometheus.transformer.js';
+export type {
+  NRPrometheusIntegrationInput,
+  PrometheusTransformData,
+  DTPrometheusRemoteWrite,
+  DTPrometheusScrapeConfig,
+} from './prometheus.transformer.js';
+
+// StatsD transformer (Gen3)
+export { StatsDTransformer } from './statsd.transformer.js';
+export type {
+  NRStatsdInput,
+  StatsdTransformData,
+  DTStatsdIngest,
+} from './statsd.transformer.js';
+
 // Non-NRQL alert condition transformer (Gen3)
 export { NonNrqlAlertConditionTransformer } from './non-nrql-alert.transformer.js';
 export type {
