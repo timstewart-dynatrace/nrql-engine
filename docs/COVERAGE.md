@@ -79,7 +79,7 @@
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| `SystemSample` / `ProcessSample` / `NetworkSample` / `StorageSample` | `timeseries` on `dt.host.*` / `dt.process.*` | compiler | ✅ |
+| `SystemSample` / `ProcessSample` / `NetworkSample` / `StorageSample` | `timeseries` on `dt.host.*` / `dt.process.*` | compiler (DEFAULT_METRIC_MAP) | ✅ metric names auto-rewritten |
 | AWS integration config | DT AWS cloud integration (settings) | transformers/cloud-integration | ✅ |
 | Azure integration config | DT Azure integration | transformers/cloud-integration | ✅ |
 | GCP integration config | DT GCP integration | transformers/cloud-integration | ✅ |

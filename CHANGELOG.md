@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (Phase 06 — compiler infra metric-name rewriting)
+
+- `NRQLCompiler` now applies a built-in NR → DT metric-name map to `timeseries`-style queries against `SystemSample` / `ProcessSample` / `NetworkSample` / `StorageSample`, so `SELECT average(cpuPercent) FROM SystemSample` now emits `timeseries avg(dt.host.cpu.usage)` rather than preserving the NR metric name literally. The map is exported as `DEFAULT_METRIC_MAP` and covers CPU / memory / disk / network / load-average metrics plus the process-level equivalents. Consumer-supplied `metricMap` options still override the defaults.
+
 ### Added (Phase 05 — ingestion expansion)
 
 - `OpenTelemetryCollectorTransformer` — NR OTLP collector config → DT OTLP exporter (grpc/http) + `builtin:otel.ingest-mappings` settings stub. API token scopes (`openTelemetryTrace.ingest`, `metrics.ingest`, `logs.ingest`) flagged for re-provisioning.

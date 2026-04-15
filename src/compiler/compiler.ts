@@ -6,6 +6,7 @@
  */
 
 import type { Query } from './ast-nodes.js';
+import { DEFAULT_METRIC_MAP } from './default-metric-map.js';
 import { DQLEmitter, type MetricResolver, type MetricTransform } from './emitter.js';
 import { LexError, NRQLLexer } from './lexer.js';
 import { NRQLParser, ParseError } from './parser.js';
@@ -45,7 +46,8 @@ export class NRQLCompiler {
     metricResolver?: MetricResolver;
   }) {
     this.fieldMap = options?.fieldMap ?? {};
-    this.metricMap = options?.metricMap ?? {};
+    // Default infra metric map is applied first; caller overrides win.
+    this.metricMap = { ...DEFAULT_METRIC_MAP, ...(options?.metricMap ?? {}) };
     this.metricTransforms = options?.metricTransforms ?? {};
     this.metricResolver = options?.metricResolver;
   }

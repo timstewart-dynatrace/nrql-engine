@@ -93,12 +93,18 @@ const CORPUS: CorpusEntry[] = [
   // ─────────────────────── Infrastructure ────────────────────────
   {
     area: 'infra',
-    // Note: metric-name rewriting (cpuPercent → host.cpu.usage) is a
-    // separate enhancement handled by the alert/metric-event transformers;
-    // the compiler preserves the source metric name so consumers can
-    // substitute at emit time.
     nrql: "SELECT average(cpuPercent) FROM SystemSample WHERE hostname LIKE '%prod%' TIMESERIES",
-    expectDqlIncludes: ['timeseries', 'avg(cpuPercent)', 'contains(host.name'],
+    expectDqlIncludes: ['timeseries', 'avg(dt.host.cpu.usage)', 'contains(host.name'],
+  },
+  {
+    area: 'infra',
+    nrql: 'SELECT average(memoryUsedPercent) FROM SystemSample',
+    expectDqlIncludes: ['avg(dt.host.memory.usage)'],
+  },
+  {
+    area: 'infra',
+    nrql: 'SELECT average(processCpuUsedPercent) FROM ProcessSample',
+    expectDqlIncludes: ['avg(dt.process.cpu.usage)'],
   },
   {
     area: 'infra',
