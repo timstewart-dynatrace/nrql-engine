@@ -12,14 +12,15 @@ A shared TypeScript engine for converting New Relic monitoring configurations to
 
 This is a **library/engine**, not a standalone application. It provides:
 
-- **AST-based NRQL-to-DQL compiler** with positive-signal Phase 19 confidence uplift (`apdex` / `COMPARE WITH` / `rate()` / `percentage()`)
+- **AST-based NRQL-to-DQL compiler** with Phase 19 positive-signal confidence uplift (`apdex` / `COMPARE WITH` / `rate()` / `percentage()`) and a 232-entry `EXTENDED_METRIC_MAP` layered on top of the curated `DEFAULT_METRIC_MAP`
 - **DQL syntax validator and auto-fixer**
-- **46 Gen3 entity transformers** spanning every documented New Relic product surface (APM, RUM, mobile, infra, cloud, synthetics, logs, alerts, AIOps, security, SLOs, dashboards, identity, …)
-- **7 opt-in Legacy transformers** emitting classic Gen2 shapes for tenant parity
+- **46 Gen3 entity transformers** + **12 Legacy opt-in / Gen2-only classes** spanning every documented New Relic product surface (APM, RUM, mobile, infra, cloud, synthetics, logs, alerts, AIOps, security, SLOs, dashboards, identity, database, NPM, AI Monitoring, …)
 - **Pure-data helpers** — `createTransformer` factory, `toMonacoYaml`, `getOtelEnvForDt`, `pcreToDpl`, `parseRrule`, `translateScimFilter`
-- **API clients** for New Relic NerdGraph and Dynatrace APIs (with `preflightGen3()` + `preflightNewRelic()` capability probes)
-- **Live DT environment registry** with metric / entity / dashboard lookups
-- **Migration state management** (checkpoint, retry, diff, rollback)
+- **Safety + observability stack** — `WarningCode` / `ErrorCode` taxonomies, `looksMigrated()` heuristic, `withRetry()` HTTP retry, `runAudit()` drift detector, `ConversionReport` (JSON + HTML), `CanaryPlan` rollout split
+- **Split client stack** — `HttpTransport` + `OAuth2PlatformTokenProvider` + `SettingsV2Client` / `DocumentClient` / `AutomationClient` with `preferOauth` routing; plus existing `NewRelicClient` / `DynatraceClient` with `preflightGen3()` + `preflightNewRelic()` capability probes
+- **Live DT environment registry** with metric / entity / dashboard lookups + SLO auditor
+- **Migration state management** — checkpoint, retry (`FailedEntities.filterTransformedData`), diff (with `ORPHAN` detection), rollback, audit
+- **NRDB archive helper** — cursor-resumable batch driver (pure-data; I/O primitives injected)
 
 Front-ends (CLI, web UI, Dynatrace app) are provided by consuming projects.
 
@@ -79,7 +80,7 @@ cp .env.example .env  # only needed for clients / registry
 ## Development
 
 ```bash
-npm test              # Run all 1295 tests
+npm test              # Run all 1434 tests
 npm run typecheck     # Type-check with tsc
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage report
@@ -103,14 +104,16 @@ NR NerdGraph API → Transformers → DT API clients
 
 | Module | Description | Tests |
 |--------|-------------|-------|
-| `compiler/` | NRQL-to-DQL AST compiler (lexer, parser, emitter, Phase 19 uplift) | 300+ |
+| `compiler/` | NRQL-to-DQL AST compiler (lexer, parser, emitter, Phase 19 uplift, `EXTENDED_METRIC_MAP` 232-entry back-port) | 325+ |
 | `validators/` | DQL syntax validator + auto-fixer + utils | 129 |
-| `transformers/` | 46 Gen3 transformers + 7 Legacy + factory + pure-data helpers | 700+ |
-| `clients/` | NR NerdGraph + DT API clients with preflight probes | 60+ |
+| `transformers/` | 46 Gen3 transformers + 12 Legacy / Gen2-only + factory + pure-data helpers | 770+ |
+| `clients/` | NR NerdGraph + DT API clients with preflight probes + Phase 16 split-client stack (`HttpTransport` + `OAuth2PlatformTokenProvider` + `SettingsV2Client` / `DocumentClient` / `AutomationClient`) | 90+ |
 | `config/` | Settings with zod + dotenv | 19 |
 | `registry/` | DTEnvironmentRegistry + SLO auditor | 39 |
-| `migration/` | State, checkpoint, retry, diff | 31 |
-| **Total** | **62 test files** | **1295** |
+| `utils/` | Phase 15 safety / observability stack — `WarningCode` / `ErrorCode` taxonomies, `looksMigrated()`, `withRetry()` | 35+ |
+| `tools/` | NRDB archive helper (cursor-resumable pure-data driver) | 8 |
+| `migration/` | State, checkpoint, retry, diff (+ `ORPHAN`), Phase 15 `runAudit`, `ConversionReport`, `CanaryPlan` | 65+ |
+| **Total** | **82 test files** | **1434** |
 
 ## Entity Transformer Catalog
 
@@ -199,6 +202,49 @@ createTransformer('alert', { legacy: true });
 ```
 
 Legacy classes: `LegacyAlertTransformer`, `LegacyNotificationTransformer`, `LegacyTagTransformer`, `LegacyWorkloadTransformer`, `LegacyDashboardTransformer`, `LegacySLOTransformer`, `LegacySyntheticTransformer`. Every legacy call emits a warning.
+
+### Gen2-only fallbacks (no Gen3 equivalent exists)
+
+Five additional transformers cover D-band items where classic DT offers an angle Gen3 doesn't. Selected via the factory with the Gen2-only kind name.
+
+| Transformer | Factory kind | Purpose |
+|-------------|--------------|---------|
+| `LegacyErrorInboxTransformer` | `error-inbox` | NR Errors-Inbox status / comments / assignees → DT Problem `POST /comments` + `/close` actions |
+| `LegacyNonNrqlAlertConditionTransformer` | `non-nrql-alert-legacy` | Non-NRQL conditions → Alerting Profile + Metric Event (no Workflow) |
+| `LegacyRequestNamingTransformer` | `request-naming` | `newrelic.setTransactionName()` → `builtin:request-naming.request-naming-rules` |
+| `LegacyCloudIntegrationTransformer` | `cloud-integration-legacy` | Classic `/api/config/v1/{aws|azure|gcp}/credentials` payloads |
+| `LegacyApdexTransformer` | `apdex` | Per-service Apdex T override via `builtin:apdex.service-apdex-calculation` |
+
+## Safety + observability (Phase 15)
+
+Exported from the main barrel:
+
+| Helper | Purpose |
+|--------|---------|
+| `WarningCode` / `ErrorCode` | Stable enums (34 + 9 codes) for machine-consumable triage |
+| `CodedWarning` / `CodedError` | Structured warning carriers (optional; `warnings: string[]` surface preserved) |
+| `warningsByCode(codes)` | Bucket warning codes for triage UIs |
+| `looksMigrated(entity)` | Heuristic detecting 6 provenance shapes (name prefix, `migrated.from=newrelic`, `nr-migrated` tags) |
+| `withProvenance(props)` / `stampDescription(desc)` | Provenance stamping helpers |
+| `withRetry(fn, policy)` | 429/5xx retry with exponential backoff + `Retry-After` + `AbortSignal` |
+| `runAudit(input)` | Post-migration drift detector (`RENAMED` / `DELETED` / `MODIFIED` / `EXTRA`) |
+| `ConversionReport` | JSON + self-contained HTML artifact writer (inline CSS, XSS-safe) |
+| `CanaryPlan` | Two-wave rollout split with approval gate |
+
+## Split client stack (Phase 16)
+
+| Module | Purpose |
+|--------|---------|
+| `HttpTransport` | Shared transport (auth injection + rate limit + retry + JSON envelope) |
+| `OAuth2PlatformTokenProvider` | Client-credentials flow with 60s refresh margin + mutex |
+| `oauthAuthProvider(provider)` / `apiTokenAuthProvider(token)` | Auth-provider conveniences |
+| `SettingsV2Client` | `/api/v2/settings/*` (Api-Token by default; `preferOauth` toggle) |
+| `DocumentClient` | `/platform/document/v1/*` (OAuth2 by default) |
+| `AutomationClient` | `/platform/automation/v1/*` (OAuth2 by default) |
+
+## NRDB archive (pure-data helper)
+
+`runNrdbArchive<R>(options)` in `src/tools/nrdb-archive.ts`. Consumers inject `runQuery` / `persistBatch` / `persistCursor` / `readCursor`; the helper drives the cursor loop, enforces `maxBatches` / `maxRecords`, respects `AbortSignal`, and returns a manifest + status enum (`EXHAUSTED` / `MAX_BATCHES` / `MAX_RECORDS` / `ABORTED`).
 
 ## CompileResult Interface
 

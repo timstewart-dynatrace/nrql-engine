@@ -11,6 +11,8 @@
 > - `COVERAGE.md` is the operational status dashboard (tracks ✅/🟡/🔴/⚫ and the transformer file that implements it).
 > - `OUT-OF-SCOPE.md` holds the reasoned exclusion list with ownership pointers.
 > - This file (`MIGRATABILITY.md`) is the reasoning layer underneath both: it explains *why* each NR surface ended up in its current band.
+>
+> **Revalidation (Phase 17, 2026-04-14):** Bands verified against current engine state after Phases 15 + 16. No band reclassifications — Phase 15 (safety/observability) and Phase 16 (split client stack + NRDB archive + EXTENDED_METRIC_MAP + Phase 19 uplift) deepen existing coverage rather than reshape it.
 
 ## Classification Bands
 

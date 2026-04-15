@@ -2,13 +2,13 @@
 
 > **Purpose:** Operational status dashboard — every New Relic surface, mapped to its Gen3 Dynatrace equivalent and the engine module responsible. Tracks what is convertible today, what is partial, what is a gap, and what is not convertible.
 >
-> **Rule:** Gen3 default output. Gen2 shapes are available as opt-in via `Legacy*` classes / `createTransformer(kind, { legacy: true })` and always emit a warning. See `.claude/phases/` for the 15-phase delivery history.
+> **Rule:** Gen3 default output. Gen2 shapes are available as opt-in via `Legacy*` classes / `createTransformer(kind, { legacy: true })` and always emit a warning. See `.claude/phases/` for the 16-phase delivery history (plus Phase 17 doc overhaul).
 >
 > **Companion docs:**
 > - `MIGRATABILITY.md` — full reasoning layer ("why" each surface is in its current band, A/B/C/D classification)
 > - `OUT-OF-SCOPE.md` — exclusion list with ownership pointers
 >
-> **Audit status (Phase 13 revalidation, 2026-04-15):** zero 🔴 rows. All Phase 08 depth passes complete, so `✅*` (schema-shipped-but-shallow) markers have been retired in favor of plain `✅`. Any `*` that remains in row text below is historical and should be read as `✅`.
+> **Audit status (Phase 17 revalidation, 2026-04-14):** zero 🔴 rows. All Phase 08 depth passes complete, so `✅*` (schema-shipped-but-shallow) markers have been retired in favor of plain `✅`. Any `*` that remains in row text below is historical and should be read as `✅`. Phases 15 (safety/observability stack) and 16 (split client stack + NRDB archive + EXTENDED_METRIC_MAP + Phase 19 uplift) shipped without changing coverage classification — they expand capability, not surface.
 
 ## Status Legend
 

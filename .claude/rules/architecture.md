@@ -4,13 +4,15 @@
 
 ```
 index.ts (barrel export)
-  └── compiler/       ← no deps
+  └── compiler/       ← no deps (consumes EXTENDED_METRIC_MAP + DEFAULT_METRIC_MAP)
   └── validators/     ← regex only
-  └── transformers/   ← depends on compiler (for Phase 19 uplift + enrichment compile-through)
-  └── clients/        ← depends on config, axios
+  └── transformers/   ← depends on compiler (Phase 19 uplift + enrichment compile-through)
+  └── clients/        ← depends on config, axios, utils/http-retry
   └── config/         ← depends on zod, dotenv
   └── registry/       ← depends on clients
-  └── migration/      ← depends on transformers
+  └── migration/      ← depends on transformers, utils/provenance
+  └── tools/          ← depends on nothing (pure-data)
+  └── utils/          ← depends on axios (for http-retry); otherwise dep-free
 ```
 
 ## NRQL Compiler Pipeline
@@ -21,13 +23,39 @@ NRQL string
   → Token[]
   → Parser (recursive descent)
   → AST (Query node with SelectItems, Conditions, etc.)
-  → DQLEmitter (walk AST, emit DQL, consult DEFAULT_METRIC_MAP)
+  → DQLEmitter (walk AST, emit DQL, consult merged metric map:
+               EXTENDED_METRIC_MAP < DEFAULT_METRIC_MAP < caller overrides)
   → Validator (syntax check + auto-fix)
   → applyPhase19Uplift() (positive-signal confidence raiser)
   → CompileResult { dql, confidence, confidenceScore, warnings, fixes, notes }
 ```
 
-**Python reference:** `/Users/Shared/GitHub/PROJECTS/Dynatrace-NewRelic/compiler/` (the engine diverged substantially from the Python baseline across Phases 01–12; see `.claude/phases/` for history)
+**Python reference:** `/Users/Shared/GitHub/PROJECTS/Dynatrace-NewRelic/compiler/` (the engine diverged substantially from the Python baseline across Phases 01–16; see `.claude/phases/` for history)
+
+## Phase 16 Split Client Stack
+
+```
+                        HttpTransport
+                     (auth injection +
+                      rate limit + retry)
+                             ^
+                             |
+        ┌────────────────────┼────────────────────┐
+        |                    |                    |
+SettingsV2Client     DocumentClient       AutomationClient
+ (Api-Token default;  (OAuth2 default;     (OAuth2 default;
+  preferOauth route)   preferOauth route)   preferOauth route)
+        ^                    ^                    ^
+        └────────────────────┴────────────────────┘
+                             |
+                       DynatraceClient
+                    (existing monolith —
+                     back-compat surface)
+```
+
+`OAuth2PlatformTokenProvider` supplies `AuthHeaderProvider` for the
+OAuth2 path with 60 s refresh margin and concurrent-caller mutex.
+`apiTokenAuthProvider(token)` supplies the classic Api-Token header.
 
 ### AST Node Design
 

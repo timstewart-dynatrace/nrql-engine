@@ -6,7 +6,7 @@
 
 ## Running Tests
 ```bash
-npx vitest run              # All 1295 tests across 62 files
+npx vitest run              # All 1434 tests across 82 files
 npx vitest run compiler     # Compiler tests only
 npx vitest run tag          # Tests for a specific transformer
 npx vitest --watch          # Watch mode
@@ -42,7 +42,7 @@ When adding a transformer that has a Legacy sibling, add it to `createTransforme
 
 ## Coverage Target
 
-- All 1295 tests must pass before commit
+- All 1434 tests must pass before commit
 - `npm run typecheck` must be clean (no `any`, strict mode)
 - New modules ship with tests in the same commit
 - Phase gate: tests + docs + COVERAGE.md updates required before each phase commit
