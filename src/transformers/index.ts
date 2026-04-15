@@ -42,13 +42,17 @@ export type {
   DashboardTransformData,
 } from './dashboard.transformer.js';
 
-// Alert transformer
-export { AlertTransformer } from './alert.transformer.js';
+// Alert transformer (Gen3 default + Gen2 legacy opt-in)
+export { AlertTransformer, LegacyAlertTransformer } from './alert.transformer.js';
 export type {
   NRAlertPolicyInput,
   NRAlertCondition,
   NRAlertTerm,
   AlertTransformData,
+  LegacyAlertTransformData,
+  DTWorkflow,
+  DTWorkflowTaskRef,
+  DTMetricEvent,
 } from './alert.transformer.js';
 
 // Notification transformer (Gen3 default + Gen2 legacy opt-in)

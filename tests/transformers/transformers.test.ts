@@ -13,6 +13,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   DashboardTransformer,
   AlertTransformer,
+  LegacyAlertTransformer,
   NotificationTransformer,
   LegacyNotificationTransformer,
   SyntheticTransformer,
@@ -247,101 +248,160 @@ describe('DashboardTransformer', () => {
 // AlertTransformer
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('AlertTransformer', () => {
+describe('AlertTransformer (Gen3 Workflow + Metric Events)', () => {
   let alertTransformer: AlertTransformer;
 
   beforeEach(() => {
     alertTransformer = new AlertTransformer();
   });
 
-  describe('AlertTransformResult', () => {
-    it('should default lists', () => {
-      const policy = { name: 'Test Policy', conditions: [] };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.metricEvents).toEqual([]);
-      expect(result.warnings).toBeDefined();
-      expect(result.errors).toBeDefined();
+  it('should emit Gen3 Workflow even for empty policy', () => {
+    const result = alertTransformer.transform({ name: 'Test Policy', conditions: [] });
+    expect(result.success).toBe(true);
+    expect(result.data!.workflow.title).toContain('[Migrated]');
+    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTagsMatch).toBe('all');
+    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTags).toEqual({
+      'nr-migrated': 'test-policy',
     });
+    expect(result.data!.metricEvents).toEqual([]);
+    expect(result.data!.workflow.tasks).toEqual([]);
   });
 
-  describe('policy transform', () => {
-    it('should transform empty policy', () => {
-      const policy = { name: 'Test Policy', id: '123', conditions: [] };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.alertingProfile).toBeDefined();
-      expect((result.data!.alertingProfile as Record<string, unknown>).name).toContain('[Migrated]');
-      expect(result.data!.metricEvents).toEqual([]);
+  it('should emit one Gen3 Metric Event per NRQL condition, tagged to match workflow trigger', () => {
+    const result = alertTransformer.transform({
+      name: 'Test Policy',
+      id: '123',
+      conditions: [
+        {
+          name: 'High Error Rate',
+          conditionType: 'NRQL',
+          nrql: { query: 'SELECT count(*) FROM TransactionError' },
+          signal: { aggregationWindow: 60 },
+          terms: [
+            { priority: 'critical', operator: 'ABOVE', threshold: 10, thresholdDuration: 300 },
+          ],
+          enabled: true,
+        },
+      ],
     });
-
-    it('should transform with nrql condition', () => {
-      const policy = {
-        name: 'Test Policy',
-        id: '123',
-        conditions: [
-          {
-            name: 'High Error Rate',
-            conditionType: 'NRQL',
-            nrql: { query: 'SELECT count(*) FROM TransactionError' },
-            signal: { aggregationWindow: 60 },
-            terms: [
-              {
-                priority: 'critical',
-                operator: 'ABOVE',
-                threshold: 10,
-                thresholdDuration: 300,
-              },
-            ],
-            enabled: true,
-          },
-        ],
-      };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.metricEvents).toHaveLength(1);
-      const event = result.data!.metricEvents[0]!;
-      expect((event.summary as string).startsWith('[Migrated]')).toBe(true);
-      expect(event.enabled).toBe(true);
-      expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
-      expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
-    });
-
-    it('should create placeholder for non nrql condition', () => {
-      const policy = {
-        name: 'Test',
-        conditions: [
-          { name: 'APM Cond', conditionType: 'APM' },
-        ],
-      };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.metricEvents).toHaveLength(1);
-      expect(result.data!.metricEvents[0]!.enabled).toBe(false);
-    });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    const event = result.data!.metricEvents[0]!;
+    expect(event.schemaId).toBe('builtin:anomaly-detection.metric-events');
+    expect(event.summary.startsWith('[Migrated]')).toBe(true);
+    expect(event.enabled).toBe(true);
+    expect(event.entityTags).toEqual({ 'nr-migrated': 'test-policy' });
+    expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
+    expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
+    expect((event.queryDefinition as Record<string, unknown>).metricKey).toBe(
+      'builtin:service.errors.total.rate',
+    );
   });
 
-  describe('monitoring strategy', () => {
-    it('should build default strategy', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const strategy = (alertTransformer as any).buildMonitoringStrategy([], 60, '', []);
-      expect(strategy.type).toBe('STATIC_THRESHOLD');
-      expect(strategy.alertCondition).toBe('ABOVE');
+  it('should emit disabled placeholder event for non-NRQL conditions', () => {
+    const result = alertTransformer.transform({
+      name: 'Test',
+      conditions: [{ name: 'APM Cond', conditionType: 'APM' }],
     });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    expect(result.data!.metricEvents[0]!.enabled).toBe(false);
+  });
 
-    it('should use critical term', () => {
-      const terms = [
+  it('should warn that workflow has no tasks attached', () => {
+    const result = alertTransformer.transform({ name: 'Test Policy', conditions: [] });
+    expect(result.warnings.some((w) => w.includes('no tasks'))).toBe(true);
+  });
+
+  it('should transform multiple policies', () => {
+    const results = alertTransformer.transformAll([
+      { name: 'P1', conditions: [] },
+      { name: 'P2', conditions: [] },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
+  });
+});
+
+describe('LegacyAlertTransformer (Gen2 Alerting Profile + Metric Event)', () => {
+  let legacy: LegacyAlertTransformer;
+
+  beforeEach(() => {
+    legacy = new LegacyAlertTransformer();
+  });
+
+  it('should emit legacy warning', () => {
+    const result = legacy.transform({ name: 'Test', conditions: [] });
+    expect(result.warnings[0]).toContain('Gen2');
+  });
+
+  it('should transform empty policy with alertingProfile', () => {
+    const result = legacy.transform({ name: 'Test Policy', id: '123', conditions: [] });
+    expect(result.success).toBe(true);
+    expect(result.data!.alertingProfile).toBeDefined();
+    expect((result.data!.alertingProfile as Record<string, unknown>).name).toContain('[Migrated]');
+    expect(result.data!.metricEvents).toEqual([]);
+  });
+
+  it('should transform with nrql condition', () => {
+    const result = legacy.transform({
+      name: 'Test Policy',
+      id: '123',
+      conditions: [
+        {
+          name: 'High Error Rate',
+          conditionType: 'NRQL',
+          nrql: { query: 'SELECT count(*) FROM TransactionError' },
+          signal: { aggregationWindow: 60 },
+          terms: [
+            { priority: 'critical', operator: 'ABOVE', threshold: 10, thresholdDuration: 300 },
+          ],
+          enabled: true,
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    const event = result.data!.metricEvents[0]!;
+    expect((event.summary as string).startsWith('[Migrated]')).toBe(true);
+    expect(event.enabled).toBe(true);
+    expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
+    expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
+  });
+
+  it('should create placeholder for non nrql condition', () => {
+    const result = legacy.transform({
+      name: 'Test',
+      conditions: [{ name: 'APM Cond', conditionType: 'APM' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    expect(result.data!.metricEvents[0]!.enabled).toBe(false);
+  });
+
+  it('should build default monitoring strategy', () => {
+    const strategy = legacy.buildMonitoringStrategy([], 60, '', []);
+    expect(strategy.type).toBe('STATIC_THRESHOLD');
+    expect(strategy.alertCondition).toBe('ABOVE');
+  });
+
+  it('should use critical term', () => {
+    const strategy = legacy.buildMonitoringStrategy(
+      [
         { priority: 'warning', operator: 'ABOVE', threshold: 5 },
         { priority: 'critical', operator: 'BELOW', threshold: 100 },
-      ];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const strategy = (alertTransformer as any).buildMonitoringStrategy(terms, 60, '', []);
-      expect(strategy.alertCondition).toBe('BELOW');
-      expect(strategy.threshold).toBe(100);
-    });
+      ],
+      60,
+      '',
+      [],
+    );
+    expect(strategy.alertCondition).toBe('BELOW');
+    expect(strategy.threshold).toBe(100);
+  });
 
-    it('should handle at least once occurrences', () => {
-      const terms = [
+  it('should handle at least once occurrences', () => {
+    const strategy = legacy.buildMonitoringStrategy(
+      [
         {
           priority: 'critical',
           operator: 'ABOVE',
@@ -349,57 +409,43 @@ describe('AlertTransformer', () => {
           thresholdDuration: 300,
           thresholdOccurrences: 'AT_LEAST_ONCE',
         },
-      ];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const strategy = (alertTransformer as any).buildMonitoringStrategy(terms, 60, '', []);
-      expect(strategy.violatingSamples).toBe(1);
-    });
+      ],
+      60,
+      '',
+      [],
+    );
+    expect(strategy.violatingSamples).toBe(1);
   });
 
-  describe('extract metric', () => {
-    it('should extract duration metric', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT average(duration) FROM Transaction',
-      );
-      expect(metric).toBe('builtin:service.response.time');
-    });
-
-    it('should extract error metric', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT count(*) FROM TransactionError',
-      );
-      expect(metric).toBe('builtin:service.errors.total.rate');
-    });
-
-    it('should extract cpu metric', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT average(cpuPercent) FROM SystemSample',
-      );
-      expect(metric).toBe('builtin:host.cpu.usage');
-    });
-
-    it('should return undefined for unknown', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT count(*) FROM CustomEvent',
-      );
-      expect(metric).toBeUndefined();
-    });
+  it('should extract duration metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT average(duration) FROM Transaction')).toBe(
+      'builtin:service.response.time',
+    );
   });
 
-  describe('transform all', () => {
-    it('should transform multiple policies', () => {
-      const policies = [
-        { name: 'P1', conditions: [] },
-        { name: 'P2', conditions: [] },
-      ];
-      const results = alertTransformer.transformAll(policies);
-      expect(results).toHaveLength(2);
-      expect(results.every((r) => r.success)).toBe(true);
-    });
+  it('should extract error metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT count(*) FROM TransactionError')).toBe(
+      'builtin:service.errors.total.rate',
+    );
+  });
+
+  it('should extract cpu metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT average(cpuPercent) FROM SystemSample')).toBe(
+      'builtin:host.cpu.usage',
+    );
+  });
+
+  it('should return undefined for unknown metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT count(*) FROM CustomEvent')).toBeUndefined();
+  });
+
+  it('should transform all', () => {
+    const results = legacy.transformAll([
+      { name: 'P1', conditions: [] },
+      { name: 'P2', conditions: [] },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
   });
 });
 
