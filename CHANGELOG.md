@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-04-14
+
+### BREAKING
+
+- All four Gen2-emitting transformers now default to Gen3 output. Callers needing the previous Gen2 shapes must switch to the new `Legacy*` classes, each of which emits a warning on every call.
+  - `AlertTransformer`: default output changed from `{ alertingProfile, metricEvents: Record<...>[] }` to `{ workflow: DTWorkflow, metricEvents: DTMetricEvent[] }`. Legacy shape available via `LegacyAlertTransformer`.
+  - `NotificationTransformer`: default output changed from `{ integrationType, config }` to `DTWorkflowTask { name, action, description, active, input }`. Legacy shape available via `LegacyNotificationTransformer`.
+  - `TagTransformer`: default output changed from `DTAutoTagRule[]` to `DTOpenPipelineEnrichmentRule[]`. Legacy shape available via `LegacyTagTransformer`.
+  - `WorkloadTransformer`: default output changed from `DTManagementZone` to `DTSegment`. Legacy shape available via `LegacyWorkloadTransformer`.
+
+### Added
+
+- **Gen3 Workflow Alert path** — `AlertTransformer` emits a Davis-problem-triggered Workflow paired with one Metric Event per NRQL condition. Both sides carry an `nr-migrated=<slug>` entity tag so the workflow fires only on problems raised by its companion Metric Events.
+- **Gen3 Notification tasks — 10 channels** — `NotificationTransformer` emits `DTWorkflowTask` configs ready to embed in a Workflow. Native actions for email, slack, pagerduty, jira, servicenow; HTTP-action fallbacks for webhook, opsgenie, xmatters, teams, victorops. Problem payload placeholders follow the Gen3 `{{ event()['event.name'] }}` convention.
+- **Gen3 OpenPipeline enrichment tags** — `TagTransformer` emits enrichment rules (schemaId `builtin:openpipeline.logs.pipelines`) that add tag fields to matching records via DPL `matchesValue()` conditions. Pipeline binding (logs/spans/bizevents/metrics) is derived from the NR entity type.
+- **Gen3 filter segments for Workloads** — `WorkloadTransformer` emits `builtin:segment` filter trees (Group / Statement nodes) best-effort-translated from the Workload collection or entity-search queries, plus a `manualSteps` array and warnings enumerating the IAM / bucket-scoping work the customer must complete.
+- **Opt-in `Legacy*` transformers** — for customers needing parity with previous Dynatrace tenants that still use Gen2 objects (Alerting Profiles, Management Zones, Auto-Tag Rules, classic Problem Notifications). Every legacy call emits a warning.
+- **Phase 01 coverage plan** — `docs/COVERAGE.md` maps every NR surface to its Gen3 target, engine module, and status (`✅` covered / `🟡` partial / `🔴` gap / `⚫` not convertible). `docs/OUT-OF-SCOPE.md` documents capabilities intentionally excluded (host ops, secrets, platform features, historical data, customer code rewrites).
+
 ## [0.3.1] - 2026-04-10
 
 ### Fixed

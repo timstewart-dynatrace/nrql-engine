@@ -25,10 +25,10 @@
 | transformers/log-parsing | — | ✅ Gen3 (OpenPipeline DPL ATTRIBUTE_EXTRACTION) |
 | transformers/slo | — | ✅ Gen3 (`builtin:monitoring.slo`) |
 | transformers/synthetic | — | ✅ Gen3 (`builtin:synthetic_test`) |
-| transformers/alert | — | 🟡 **Gen2** — emits `alertingProfile`; must emit Workflow + Metric Event |
-| transformers/notification | — | 🟡 **Gen2** — emits classic `{ProblemTitle}` Problem Notification shape; must emit Workflow action config |
-| transformers/tag | — | 🟡 **Gen2** — emits `autoTagRule`; must emit OpenPipeline enrichment |
-| transformers/workload | — | 🟡 **Gen2** — emits `managementZone`; must emit `builtin:segment` + bucket-scoped IAM |
+| transformers/alert | — | ✅ Gen3 Workflow + Metric Event default; `LegacyAlertTransformer` preserves Alerting Profile (opt-in, warns) |
+| transformers/notification | — | ✅ Gen3 Workflow task (10 channels) default; `LegacyNotificationTransformer` preserves classic Problem Notification (opt-in, warns) |
+| transformers/tag | — | ✅ Gen3 OpenPipeline enrichment default; `LegacyTagTransformer` preserves Auto-Tag Rule (opt-in, warns) |
+| transformers/workload | — | ✅ Gen3 `builtin:segment` default with manual-step warnings; `LegacyWorkloadTransformer` preserves Management Zone (opt-in, warns) |
 
 ## 1. APM
 
@@ -124,8 +124,8 @@
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| Alert Policy | Gen3 Workflow (`trigger.event.config.davis_problem`) | transformers/alert | 🟡 **Gen2 leak** — currently emits Alerting Profile. Phase 02 rewrite |
-| NRQL Condition (static threshold) | Metric Event (`builtin:anomaly-detection.metric-events`) with DQL | transformers/alert | 🟡 shape correct, must be wired to Workflow not Alerting Profile |
+| Alert Policy | Gen3 Workflow (`trigger.event.config.davis_problem`) | transformers/alert | ✅ Gen3 default (legacy opt-in) |
+| NRQL Condition (static threshold) | Metric Event (`builtin:anomaly-detection.metric-events`) with DQL | transformers/alert | ✅ wired via `entity_tags` to companion Workflow |
 | NRQL Condition (baseline) | Davis adaptive baseline (`builtin:davis.anomaly-detectors`) | — | 🔴 Phase 04 |
 | NRQL Condition (outlier) | Davis outlier detection | — | 🔴 Phase 04 |
 | APM Condition | Davis adaptive baseline | — | 🟡 flag-as-manual |
@@ -135,12 +135,17 @@
 | Mobile / Browser Condition | Metric Event on RUM metrics | — | 🔴 Phase 04 |
 | Multi-location Synthetic Condition | Metric Event w/ location-count | — | 🔴 Phase 04 |
 | Lookup tables (WHERE IN) | DQL `lookup` subquery | — | 🔴 LookupTableTransformer (Phase 03) |
-| Notification Channel — Email | Workflow task `dynatrace.email:email-action` | transformers/notification | 🟡 **Gen2 leak** — currently emits classic Problem Notification. Phase 02 |
-| Notification Channel — Slack | Workflow task `dynatrace.slack:slack-action` | transformers/notification | 🟡 Phase 02 |
-| Notification Channel — PagerDuty | Workflow task `dynatrace.pagerduty:pagerduty-action` | transformers/notification | 🟡 Phase 02 |
-| Notification Channel — Webhook | Workflow task `dynatrace.http:http-action` | transformers/notification | 🟡 Phase 02 |
-| Notification Channel — OpsGenie / xMatters / Jira / ServiceNow / Teams / VictorOps | Workflow HTTP task | — | 🔴 extend NotificationTransformer (Phase 02 scope) |
-| Incident preferences (PER_POLICY/CONDITION/TARGET) | Workflow trigger filters + grouping | — | 🔴 Phase 02 |
+| Notification Channel — Email | Workflow task `dynatrace.email:email-action` | transformers/notification | ✅ Gen3 default (legacy opt-in) |
+| Notification Channel — Slack | Workflow task `dynatrace.slack:slack-action` | transformers/notification | ✅ |
+| Notification Channel — PagerDuty | Workflow task `dynatrace.pagerduty:pagerduty-action` | transformers/notification | ✅ |
+| Notification Channel — Webhook | Workflow task `dynatrace.http:http-action` | transformers/notification | ✅ |
+| Notification Channel — OpsGenie | Workflow HTTP task (`GenieKey` header) | transformers/notification | ✅ |
+| Notification Channel — xMatters | Workflow HTTP task | transformers/notification | ✅ |
+| Notification Channel — Jira | Workflow task `dynatrace.jira:create-issue-action` | transformers/notification | ✅ |
+| Notification Channel — ServiceNow | Workflow task `dynatrace.servicenow:incident-action` | transformers/notification | ✅ |
+| Notification Channel — Teams | Workflow HTTP task | transformers/notification | ✅ |
+| Notification Channel — VictorOps | Workflow HTTP task | transformers/notification | ✅ |
+| Incident preferences (PER_POLICY/CONDITION/TARGET) | Workflow trigger filters + grouping | — | 🔴 Phase 04 |
 | Mute rules (NRQL-based) | Metric Event w/ embedded filter | — | 🔴 Phase 04 (with maintenance windows) |
 | Maintenance windows (scheduled, recurring) | `dynatrace_maintenance` (Gen3) | — | 🔴 MaintenanceWindowTransformer (Phase 04) |
 
@@ -219,8 +224,8 @@
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| Workload | `builtin:segment` + bucket-scoped IAM | transformers/workload | 🟡 **Gen2 leak** — currently emits Management Zone. Phase 02 |
-| Entity tags | OpenPipeline enrichment (DPL) | transformers/tag | 🟡 **Gen2 leak** — currently emits Auto-Tag Rule. Phase 02 |
+| Workload | `builtin:segment` + bucket-scoped IAM | transformers/workload | ✅ Gen3 segment default (best-effort; manual IAM + bucket scoping flagged in warnings) |
+| Entity tags | OpenPipeline enrichment (DPL) | transformers/tag | ✅ Gen3 default (legacy opt-in) |
 | Entity golden signals | Davis signals | — | ⚫ platform feature |
 | Entity health status | Problem severity / Davis | — | ⚫ platform feature |
 | Entity relationships | Smartscape | — | ⚫ auto-discovered |
