@@ -118,6 +118,58 @@ export type {
   DTAutoTagRule,
 } from './tag.transformer.js';
 
+// Identity transformer (Gen3)
+export { IdentityTransformer } from './identity.transformer.js';
+export type {
+  NRIdentityInput,
+  NRUser,
+  NRTeam,
+  NRRole,
+  NRSamlConfig,
+  IdentityTransformData,
+  DTUserStub,
+  DTTeam,
+  DTIamPolicyV2,
+  DTSamlIdpConfig,
+} from './identity.transformer.js';
+
+// Change tracking transformer (Gen3)
+export { ChangeTrackingTransformer } from './change-tracking.transformer.js';
+export type {
+  NRChangeCategory,
+  NRChangeEventInput,
+  ChangeTrackingTransformData,
+  DTEventType,
+  DTCustomEventPayload,
+} from './change-tracking.transformer.js';
+
+// AIOps transformer (Gen3)
+export { AIOpsTransformer } from './aiops.transformer.js';
+export type {
+  NRAIOpsWorkflowInput,
+  AIOpsTransformData,
+  DTAiopsWorkflow,
+  DTWorkflowEnrichment,
+} from './aiops.transformer.js';
+
+// Log obfuscation transformer (Gen3)
+export { LogObfuscationTransformer } from './log-obfuscation.transformer.js';
+export type {
+  NRObfuscationCategory,
+  NRObfuscationRule,
+  LogObfuscationTransformData,
+  DTOpenPipelineMaskingStage,
+  DTOpenPipelineMaskingRule,
+} from './log-obfuscation.transformer.js';
+
+// Lookup table transformer (Gen3)
+export { LookupTableTransformer } from './lookup-table.transformer.js';
+export type {
+  NRLookupTableInput,
+  LookupTableTransformData,
+  DTLookupUploadManifest,
+} from './lookup-table.transformer.js';
+
 // Cloud integration transformer (Gen3)
 export { CloudIntegrationTransformer } from './cloud-integration.transformer.js';
 export type {

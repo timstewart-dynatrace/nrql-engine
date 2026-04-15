@@ -39,12 +39,12 @@
 | Distributed tracing / PurePath | DT distributed tracing | compiler (query) | ✅ |
 | Key Transactions | critical-service flag + Workflow + DQL SLO | — | 🔴 |
 | Apdex score | `countIf()` buckets in DQL | compiler | 🟡 LOW-confidence translation |
-| Deployment markers (APM deployment API) | DT deployment events API | — | 🔴 → ChangeTrackingTransformer (Phase 03) |
+| Deployment markers (APM deployment API) | DT deployment events API | transformers/change-tracking | ✅ |
 | Error profiles | Davis Problems | — | ⚫ platform feature |
 | Thread profiler / X-Ray | DT code profiling | — | ⚫ platform feature |
 | APM agent uninstall + OneAgent install (per language) | OneAgent deployment | — | ⚫ out-of-scope (host ops; see OUT-OF-SCOPE.md) |
 | Custom instrumentation (`newrelic.*()`) | OneAgent SDK / OTel SDK | — | 🔴 AST translator (Phase 04) |
-| `newrelic.recordCustomEvent()` | `bizevent.ingest` | — | 🔴 CustomEventTransformer (Phase 03) |
+| `newrelic.recordCustomEvent()` | `bizevent.ingest` | transformers/custom-event | ✅ |
 | `newrelic.addCustomAttribute()` | OneAgent SDK CRA | — | 🔴 Phase 04 |
 | `newrelic.recordMetric()` | OTel Meter API | — | 🔴 Phase 04 |
 | `newrelic.noticeError()` | OneAgent SDK error / OTel | — | 🔴 Phase 04 |
@@ -55,24 +55,24 @@
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| Browser application (entity) | DT RUM application | — | 🔴 BrowserRUMTransformer (Phase 03) |
-| PageView / BrowserInteraction / AjaxRequest / JavaScriptError | `fetch bizevents` (RUM) | compiler (field map) | 🟡 event-type map exists, RUM config not emitted |
-| Core Web Vitals (LCP/FID/CLS/INP/TTFB/FCP) | DT RUM Core Web Vitals metrics | — | 🔴 Phase 03 |
+| Browser application (entity) | DT RUM application | transformers/browser-rum | ✅ |
+| PageView / BrowserInteraction / AjaxRequest / JavaScriptError | `fetch bizevents` (RUM) | compiler + transformers/browser-rum | ✅ |
+| Core Web Vitals (LCP/FID/CLS/INP/TTFB/FCP) | DT RUM Core Web Vitals metrics | transformers/browser-rum | ✅ auto-captured by DT RUM agent once injected |
 | Session Replay | DT Session Replay | — | ⚫ feature activation, not config migration |
-| SPA monitoring | DT SPA support | — | 🔴 Phase 03 |
-| Custom browser events | DT RUM custom events API | — | 🔴 Phase 03 |
-| Browser allow/deny lists | DT RUM domain allowlist | — | 🔴 Phase 03 |
-| Domain aliasing | DT application naming rules | — | 🔴 Phase 03 |
+| SPA monitoring | DT SPA support | transformers/browser-rum | ✅ |
+| Custom browser events | DT RUM custom events API | transformers/browser-rum | ✅ |
+| Browser allow/deny lists | DT RUM domain allowlist | transformers/browser-rum | ✅ |
+| Domain aliasing | DT application naming rules | transformers/browser-rum | ✅ |
 
 ## 3. Mobile RUM
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| Mobile application (entity) | DT Mobile application | — | 🔴 MobileRUMTransformer (Phase 03) |
-| Android / iOS / React Native / Flutter / Xamarin / Unity / Cordova / Capacitor agents | DT Mobile SDK per platform | — | ⚫ SDK swap is host/build op (see OUT-OF-SCOPE.md) |
-| MobileSession / MobileCrash / MobileRequest / handled exceptions | DT mobile session data via `fetch bizevents` | compiler (field map) | 🔴 source mapping missing |
-| Custom mobile events | DT mobile SDK events | — | 🔴 Phase 03 |
-| App launch / device info | DT mobile dimensions | — | 🔴 Phase 03 |
+| Mobile application (entity) | DT Mobile application | transformers/mobile-rum | ✅ |
+| Android / iOS / React Native / Flutter / Xamarin / Unity / Cordova / Capacitor agents | DT Mobile SDK per platform | transformers/mobile-rum | 🟡 config emitted + per-platform SDK-swap instructions; actual code swap is build-pipeline work |
+| MobileSession / MobileCrash / MobileRequest / handled exceptions | DT mobile session data via `fetch bizevents` | transformers/mobile-rum | ✅ |
+| Custom mobile events | DT mobile SDK events | transformers/mobile-rum | ✅ |
+| App launch / device info | DT mobile dimensions | transformers/mobile-rum | ✅ |
 | Crash symbolication (dSYM, ProGuard/R8) | DT symbolication upload | — | ⚫ build-pipeline op |
 
 ## 4. Infrastructure
@@ -80,15 +80,15 @@
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
 | `SystemSample` / `ProcessSample` / `NetworkSample` / `StorageSample` | `timeseries` on `dt.host.*` / `dt.process.*` | compiler | ✅ |
-| AWS integration config | DT AWS cloud integration (settings) | — | 🔴 CloudIntegrationTransformer (Phase 03) |
-| Azure integration config | DT Azure integration | — | 🔴 Phase 03 |
-| GCP integration config | DT GCP integration | — | 🔴 Phase 03 |
-| AWS Lambda integration | DT Lambda extension config | — | 🔴 LambdaTransformer (Phase 03) |
-| On-host integrations (MySQL, Postgres, Redis, …) | DT extensions / OneAgent plugins | — | 🔴 Phase 03 (bundle with Cloud) |
-| Kubernetes integration | DT DynaKube | — | 🔴 KubernetesTransformer (Phase 03) |
-| Prometheus integration | DT Prometheus ingestion | — | 🔴 Phase 03 |
-| StatsD ingestion | DT StatsD ingestion | — | 🔴 Phase 03 |
-| OpenTelemetry collector config | DT OTel ingestion | — | 🔴 Phase 03 |
+| AWS integration config | DT AWS cloud integration (settings) | transformers/cloud-integration | ✅ |
+| Azure integration config | DT Azure integration | transformers/cloud-integration | ✅ |
+| GCP integration config | DT GCP integration | transformers/cloud-integration | ✅ |
+| AWS Lambda integration | DT Lambda extension config | transformers/lambda | ✅ |
+| On-host integrations (MySQL, Postgres, Redis, …) | DT extensions / OneAgent plugins | — | 🔴 Phase 04 |
+| Kubernetes integration | DT DynaKube | transformers/kubernetes | ✅ |
+| Prometheus integration | DT Prometheus ingestion | — | 🔴 Phase 04 |
+| StatsD ingestion | DT StatsD ingestion | — | 🔴 Phase 04 |
+| OpenTelemetry collector config | DT OTel ingestion | — | 🔴 Phase 04 |
 | NR Flex (custom scripts) | OneAgent extensions / OTel collector | — | ⚫ script rewrite, not automatable |
 | Infra-agent log collection | OneAgent log collection | — | 🟡 reconfigure at forwarder level |
 
@@ -113,7 +113,7 @@
 | Log API (HTTP POST) | DT Generic Log Ingest API | — | 🟡 endpoint change |
 | Drop rules | OpenPipeline filter processors | transformers/drop-rule | ✅ |
 | Parsing rules (Grok) | OpenPipeline DPL parsers | transformers/log-parsing | ✅ |
-| Obfuscation rules (PII / PAN masking) | OpenPipeline masking processors | — | 🔴 LogObfuscationTransformer (Phase 03) |
+| Obfuscation rules (PII / PAN masking) | OpenPipeline masking processors | transformers/log-obfuscation | ✅ |
 | Log patterns (auto-clustering) | DT log pattern recognition | — | ⚫ platform feature |
 | Log alerting (NRQL on logs) | Metric Event on DQL over `fetch logs` | compiler + alert | 🟡 depends on alert Gen3 rewrite (Phase 02) |
 | Log partitions (data partitions) | Grail buckets | — | 🟡 documented, no auto-creation |
@@ -134,7 +134,7 @@
 | External Service Condition | Metric Event on service deps | — | 🔴 Phase 04 |
 | Mobile / Browser Condition | Metric Event on RUM metrics | — | 🔴 Phase 04 |
 | Multi-location Synthetic Condition | Metric Event w/ location-count | — | 🔴 Phase 04 |
-| Lookup tables (WHERE IN) | DQL `lookup` subquery | — | 🔴 LookupTableTransformer (Phase 03) |
+| Lookup tables (WHERE IN) | DQL `lookup` subquery | transformers/lookup-table | ✅ |
 | Notification Channel — Email | Workflow task `dynatrace.email:email-action` | transformers/notification | ✅ Gen3 default (legacy opt-in) |
 | Notification Channel — Slack | Workflow task `dynatrace.slack:slack-action` | transformers/notification | ✅ |
 | Notification Channel — PagerDuty | Workflow task `dynatrace.pagerduty:pagerduty-action` | transformers/notification | ✅ |
@@ -155,9 +155,9 @@
 |-----------|-------------|---------------|--------|
 | Issues & incidents | Davis Problems | — | ⚫ auto-detected; concept mapping only |
 | Decisions (correlation rules) | Davis causal engine | — | ⚫ Davis replaces manual decisions |
-| NR Workflows (for incident routing) | DT Gen3 Workflows | — | 🔴 AIOpsTransformer (Phase 03) |
-| Destinations (webhook targets) | Workflow tasks | — | 🟡 overlaps with NotificationTransformer |
-| Enrichments (NRQL-based context injection) | Workflow enrichment steps | — | 🔴 Phase 03 |
+| NR Workflows (for incident routing) | DT Gen3 Workflows | transformers/aiops | ✅ |
+| Destinations (webhook targets) | Workflow tasks | transformers/aiops + transformers/notification | ✅ |
+| Enrichments (NRQL-based context injection) | Workflow enrichment steps | transformers/aiops | ✅ emits `dynatrace.automations:run-query` tasks with NRQL-to-DQL TODO placeholders |
 | Proactive detection (APM auto-baselines) | Davis adaptive baselines | — | ⚫ platform feature |
 | Anomaly detection settings | Davis anomaly detection | — | 🔴 Phase 04 |
 
@@ -188,17 +188,17 @@
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| Users | DT Users | — | 🔴 IdentityTransformer (Phase 03) |
-| Teams | `builtin:ownership.teams` + IAM Groups | — | 🔴 Phase 03 |
+| Users | DT Users | transformers/identity | ✅ emits user stubs for IAM binding; users auto-create on first SSO sign-in |
+| Teams | `builtin:ownership.teams` + IAM Groups | transformers/identity | ✅ |
 | User types (Full / Core / Basic) | DT license types | — | ⚫ licensing, not config |
-| Authentication domains | DT auth settings | — | 🔴 Phase 03 |
-| SAML SSO | DT SAML IdP config | — | 🔴 Phase 03 |
-| SCIM provisioning | DT SCIM | — | 🔴 Phase 03 |
-| Default roles | DT built-in policies | — | 🔴 Phase 03 |
-| Custom roles | DT custom IAM policies (bucket-scoped) | — | 🔴 Phase 03 |
-| Product-level permissions | DT scoped policies | — | 🔴 Phase 03 |
+| Authentication domains | DT auth settings | transformers/identity | ✅ |
+| SAML SSO | DT SAML IdP config | transformers/identity | ✅ |
+| SCIM provisioning | DT SCIM | — | 🟡 flagged as manual follow-up per IdentityTransformer warnings |
+| Default roles | DT built-in policies | transformers/identity | ✅ |
+| Custom roles | DT custom IAM policies (bucket-scoped) | transformers/identity | ✅ common permissions mapped; unmapped permissions emit TODO placeholders |
+| Product-level permissions | DT scoped policies | transformers/identity | ✅ |
 | API keys (User / Ingest / License / Browser / Mobile) | DT tokens / OAuth clients | — | ⚫ secrets don't migrate |
-| Service accounts | DT service users / OAuth clients | — | 🔴 Phase 03 |
+| Service accounts | DT service users / OAuth clients | transformers/identity | 🟡 emitted as user stubs; DT OAuth client setup is manual |
 
 ## 12. Change Tracking / Deployments
 
@@ -239,7 +239,7 @@
 | Data retention settings | Per-bucket retention | — | 🟡 manual (Terraform) |
 | Event type metadata | — | — | ⚫ DT event types fixed |
 | Metric normalization rules | OpenPipeline metric processing | — | 🔴 Phase 03 |
-| Custom event types (via Event API) | `bizevent.ingest` | — | 🔴 CustomEventTransformer (Phase 03) |
+| Custom event types (via Event API) | `bizevent.ingest` | transformers/custom-event | ✅ |
 | Historical data (NRDB) | — | — | ⚫ not migratable to Grail |
 | Archive / export (pre-decommission) | NR export via API | — | ⚫ out-of-scope (host ops, long-running; see OUT-OF-SCOPE.md) |
 
@@ -247,8 +247,8 @@
 
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
-| Kubernetes navigator / Cluster explorer | DT Kubernetes app | — | 🔴 KubernetesTransformer (Phase 03) |
-| Lambda / serverless monitoring | DT serverless / Lambda extension | — | 🔴 LambdaTransformer (Phase 03) |
+| Kubernetes navigator / Cluster explorer | DT Kubernetes app | transformers/kubernetes | ✅ emits DynaKube CR |
+| Lambda / serverless monitoring | DT serverless / Lambda extension | transformers/lambda | ✅ per-runtime layer guidance |
 | Vulnerability Management | DT Application Security | — | 🔴 Phase 03 |
 | Network Performance Monitoring | DT Network monitoring | — | 🔴 Phase 03 (stretch) |
 | Model / AI monitoring | DT AI Observability | — | 🔴 Phase 03 (stretch) |

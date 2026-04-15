@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 03 — new Gen3 transformers)
+
+- `BrowserRUMTransformer` — NR Browser app config → `builtin:rum.web.app-detection` + OpenPipeline bizevents mapping (PageView/PageAction/BrowserInteraction/AjaxRequest/JavaScriptError → rum.*). Core Web Vitals note. Manual steps: RUM JS agent deployment, CSP allowlist, Session Replay activation.
+- `MobileRUMTransformer` — NR Mobile app config → `builtin:mobile.app-detection` across 8 platforms (Android, iOS, React Native, Flutter, Xamarin, Unity, Cordova, Capacitor) with per-platform SDK-swap guidance. Event mapping covers MobileSession/Crash/HandledException/Request/RequestError.
+- `CustomEventTransformer` — NR `recordCustomEvent` / Event API → `builtin:bizevents.http.incoming.rules` ingest rule + OpenPipeline processing + DQL rewrite sample. Attributes accepted explicitly or inferred from a sample payload.
+- `CloudIntegrationTransformer` — NR AWS / Azure / GCP integrations → `builtin:cloud.aws` / `.azure` / `.gcp` with per-provider service name mapping and IAM re-provisioning steps.
+- `LambdaTransformer` — NR Lambda function config → `builtin:serverless.function-detection` with per-runtime layer swap instructions (nodejs/python/java/dotnet/go/ruby/custom).
+- `KubernetesTransformer` — NR K8s integration → DynaKube CR (apiVersion `dynatrace.com/v1beta2`, kind `DynaKube`) with cloudNativeFullStack + ActiveGate kubernetes-monitoring. Namespace include/exclude translate to In/NotIn match expressions.
+- `IdentityTransformer` — NR users/teams/roles/SAML → DT user stubs + `builtin:ownership.teams` + Gen3 IAM v2 policy statements + SAML IdP config stub. Permission map covers apm/logs/dashboards/alerts read+admin tiers; unmapped permissions emit TODO placeholders.
+- `ChangeTrackingTransformer` — NR change events → DT `/api/v2/events/ingest` payload (`CUSTOM_DEPLOYMENT` / `CUSTOM_CONFIGURATION` / `CUSTOM_INFO`) + Workflow trigger stub for Davis correlation.
+- `AIOpsTransformer` — NR AIOps workflows (enrichments + destinations + muting rules) → Gen3 Workflow with `dynatrace.automations:run-query` enrichment tasks and notification task stubs. NRQL enrichments emit TODO DQL placeholders.
+- `LogObfuscationTransformer` — NR PII/PAN masking rules → OpenPipeline masking stage (`builtin:openpipeline.logs.pipelines`, stage `masking`) with built-in patterns for EMAIL/SSN/CREDIT_CARD/PHONE/IP_ADDRESS plus CUSTOM regex support. Advanced PCRE features (lookbehind, backreferences) flagged for review.
+- `LookupTableTransformer` — NR lookup tables → Grail resource-store upload manifest (JSONL content + `lookup:upload` endpoint path) plus DQL `lookup` subquery usage example.
+
+All Phase 03 transformers emit `manualSteps` arrays alongside warnings enumerating non-automatable work (agent deployment, SDK swap, secret re-provisioning, IAM design) per `docs/OUT-OF-SCOPE.md`.
+
 ## [1.0.0] - 2026-04-14
 
 ### BREAKING
