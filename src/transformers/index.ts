@@ -211,6 +211,10 @@ export type {
 export { AIOpsTransformer } from './aiops.transformer.js';
 export type {
   NRAIOpsWorkflowInput,
+  NRAIOpsWorkflowV2Input,
+  NRWorkflowV2Predicate,
+  NRWorkflowV2MutingHandling,
+  NRWorkflowV2NotificationTrigger,
   AIOpsTransformData,
   DTAiopsWorkflow,
   DTWorkflowEnrichment,
@@ -233,6 +237,16 @@ export type {
   LookupTableTransformData,
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
+
+// CloudWatch Metric Streams transformer (Gen3)
+export { CloudWatchMetricStreamsTransformer } from './cloudwatch-metric-streams.transformer.js';
+export type {
+  NRCloudWatchMetricStreamInput,
+  CloudWatchMetricStreamsTransformData,
+  DTAwsMetricStreamsConfig,
+  DTFirehoseDeliveryStreamSpec,
+  DTFirehoseIamTrust,
+} from './cloudwatch-metric-streams.transformer.js';
 
 // Cloud integration transformer (Gen3)
 export { CloudIntegrationTransformer } from './cloud-integration.transformer.js';

@@ -41,6 +41,51 @@ export interface NRAIOpsWorkflowInput {
 }
 
 // ---------------------------------------------------------------------------
+// Workflows v2 input (distinct NerdGraph shape)
+// ---------------------------------------------------------------------------
+
+export type NRWorkflowV2MutingHandling =
+  | 'NOTIFY_ALL_ISSUES'
+  | 'DONT_NOTIFY_FULLY_MUTED_ISSUES'
+  | 'DONT_NOTIFY_FULLY_OR_PARTIALLY_MUTED_ISSUES';
+
+export type NRWorkflowV2NotificationTrigger = 'ACTIVATED' | 'CLOSED' | 'ACKNOWLEDGED';
+
+export interface NRWorkflowV2Predicate {
+  readonly attribute: string;
+  readonly operator: 'EQUAL' | 'NOT_EQUAL' | 'CONTAINS' | 'STARTS_WITH' | 'IN';
+  readonly values: string[];
+}
+
+export interface NRAIOpsWorkflowV2Input {
+  readonly name?: string;
+  readonly workflowEnabled?: boolean;
+  readonly destinationsEnabled?: boolean;
+  readonly mutingRulesHandling?: NRWorkflowV2MutingHandling;
+  readonly issuesFilter?: {
+    readonly name?: string;
+    readonly predicates: NRWorkflowV2Predicate[];
+  };
+  readonly destinationConfigurations?: Array<{
+    readonly channelId: string;
+    readonly name?: string;
+    readonly channelType?: string;
+    readonly notificationTriggers?: NRWorkflowV2NotificationTrigger[];
+    readonly updateOriginalMessage?: boolean;
+  }>;
+  readonly enrichments?: {
+    readonly nrqlEnrichments?: Array<{
+      readonly name: string;
+      readonly query: string;
+    }>;
+    readonly dashboardEnrichments?: Array<{
+      readonly name: string;
+      readonly dashboardGuid: string;
+    }>;
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Gen3 output — reuses the AlertTransformer's DTWorkflow shape
 // ---------------------------------------------------------------------------
 
@@ -195,5 +240,127 @@ export class AIOpsTransformer {
     inputs: NRAIOpsWorkflowInput[],
   ): TransformResult<AIOpsTransformData>[] {
     return inputs.map((i) => this.transform(i));
+  }
+
+  // ─── Workflows v2 ───────────────────────────────────────────────────────
+
+  transformV2(input: NRAIOpsWorkflowV2Input): TransformResult<AIOpsTransformData> {
+    try {
+      const name = input.name?.trim();
+      if (!name) return failure(['Workflow v2 name is required']);
+
+      const warnings: string[] = [];
+      const active = (input.workflowEnabled ?? true) && (input.destinationsEnabled ?? true);
+      if (input.workflowEnabled === false) {
+        warnings.push('workflowEnabled=false on source — emitted Workflow is disabled.');
+      }
+
+      // Derive entityTags + minSeverity from the v2 predicate list.
+      const entityTags: Record<string, string> = {};
+      let minSeverity: DTAiopsWorkflow['trigger']['event']['config']['davisProblem']['minSeverity'] =
+        'ALL';
+
+      for (const p of input.issuesFilter?.predicates ?? []) {
+        if (p.attribute.startsWith('labels.') || p.attribute.startsWith('tags.')) {
+          const key = p.attribute.replace(/^(labels|tags)\./, '');
+          if (p.operator === 'EQUAL' && p.values.length > 0) {
+            entityTags[key] = p.values[0]!;
+          }
+        } else if (p.attribute === 'priority' && p.values.length > 0) {
+          const pri = p.values[0];
+          if (pri === 'CRITICAL' || pri === 'HIGH') minSeverity = 'ERROR';
+          else if (pri === 'MEDIUM') minSeverity = 'PERFORMANCE';
+          else if (pri === 'LOW') minSeverity = 'CUSTOM';
+        } else {
+          warnings.push(
+            `Predicate on attribute '${p.attribute}' (op=${p.operator}) has no direct Davis-problem filter equivalent; translate manually.`,
+          );
+        }
+      }
+
+      // Muting handling → comments on the workflow; DT uses Workflow
+      // predicate rules, not a stream-level muting flag.
+      const mutingRuleDql = input.mutingRulesHandling
+        ? [`# Source workflow v2 mutingRulesHandling=${input.mutingRulesHandling}`]
+        : [];
+      if (input.mutingRulesHandling === 'DONT_NOTIFY_FULLY_OR_PARTIALLY_MUTED_ISSUES') {
+        warnings.push(
+          'mutingRulesHandling=DONT_NOTIFY_FULLY_OR_PARTIALLY_MUTED_ISSUES has no direct DT equivalent — layer a Workflow problem-filter step or a maintenance window to match behavior.',
+        );
+      }
+
+      // Enrichments → run-query tasks (NRQL embedded as TODO).
+      const tasks: DTWorkflowEnrichment[] = [];
+      for (const e of input.enrichments?.nrqlEnrichments ?? []) {
+        tasks.push({
+          name: e.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+          action: 'dynatrace.automations:run-query',
+          description: `[Migrated v2 enrichment] ${e.name}`,
+          active: true,
+          input: {
+            query: `# NRQL source: ${e.query}\n# TODO: translate via nrql-engine compiler before use\nfetch events, from:-1h`,
+            resultKey: e.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+          },
+        });
+        warnings.push(
+          `v2 nrqlEnrichment '${e.name}' carries a TODO DQL placeholder — run the NRQL through the compiler.`,
+        );
+      }
+      for (const d of input.enrichments?.dashboardEnrichments ?? []) {
+        warnings.push(
+          `v2 dashboardEnrichment '${d.name}' (dashboardGuid=${d.dashboardGuid}) — Dynatrace dashboards are referenced by document id; re-link after migrating the dashboard.`,
+        );
+      }
+
+      // Destination configs → notificationTaskStubs (same downstream wiring as v1)
+      const notificationTaskStubs = (input.destinationConfigurations ?? []).map((d) => ({
+        channelType: (d.channelType ?? 'UNKNOWN').toUpperCase(),
+        taskName: (d.name ?? d.channelId)
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, '_'),
+      }));
+
+      const workflow: DTAiopsWorkflow = {
+        title: `[Migrated AIOps v2] ${name}`,
+        description: `Migrated from New Relic AIOps workflow v2 "${name}".`,
+        isPrivate: false,
+        trigger: {
+          event: {
+            active,
+            config: {
+              davisProblem: {
+                categories: {
+                  availability: true,
+                  error: true,
+                  slowdown: true,
+                  resource: true,
+                  custom: true,
+                  monitoringUnavailable: false,
+                },
+                entityTags,
+                entityTagsMatch: 'all',
+                minSeverity,
+              },
+            },
+          },
+        },
+        tasks,
+        notificationTaskStubs,
+        mutingRuleDql,
+      };
+
+      return success({ workflow, manualSteps: MANUAL_STEPS }, [
+        ...warnings,
+        ...MANUAL_STEPS,
+      ]);
+    } catch (err) {
+      return failure([`Transformation error: ${String(err)}`]);
+    }
+  }
+
+  transformAllV2(
+    inputs: NRAIOpsWorkflowV2Input[],
+  ): TransformResult<AIOpsTransformData>[] {
+    return inputs.map((i) => this.transformV2(i));
   }
 }
