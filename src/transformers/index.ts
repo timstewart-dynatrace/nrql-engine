@@ -98,11 +98,12 @@ export type {
   DTLogProcessingRule,
 } from './log-parsing.transformer.js';
 
-// Tag transformer
-export { TagTransformer } from './tag.transformer.js';
+// Tag transformer (Gen3 default + Gen2 legacy opt-in)
+export { TagTransformer, LegacyTagTransformer } from './tag.transformer.js';
 export type {
   NRTagEntityInput,
   NRTag,
+  DTOpenPipelineEnrichmentRule,
   DTAutoTagRule,
 } from './tag.transformer.js';
 
