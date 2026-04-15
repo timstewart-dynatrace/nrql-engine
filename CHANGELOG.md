@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 04 — alert completeness + compiler corpus)
+
+- `NonNrqlAlertConditionTransformer` — NR APM / APM_APP / INFRA_METRIC / INFRA_PROCESS / SYNTHETIC / BROWSER / MOBILE / EXTERNAL_SERVICE conditions (no NRQL source) → Gen3 Metric Events on mapped `builtin:*` metrics with per-product entity dimensions. Unmapped metrics emit a disabled placeholder with warning. Wires into AlertTransformer Workflows via `nr-migrated` entity tag.
+- `BaselineAlertTransformer` — NR BASELINE / OUTLIER conditions → `builtin:davis.anomaly-detectors`. Direction (LOWER_ONLY / UPPER_ONLY / UPPER_AND_LOWER) maps to BELOW / ABOVE / BOTH; sensitivity preserved; training window translates to P`<days>`D. Original NRQL is embedded as a DQL comment for compile-through.
+- `MaintenanceWindowTransformer` — NR maintenance windows (ONCE / DAILY / WEEKLY / MONTHLY) + mute rules → `builtin:alerting.maintenance-window` with schedule recurrence + suppression mode. MUTE_RULE kind emits NRQL as a TODO `filterSegmentDql` with a warning that DT has no direct "mute on matching NRQL" equivalent.
+- **NRQL real-world regression corpus** (`tests/compiler/real-world-corpus.test.ts`) — 22 curated patterns spanning APM / Browser / Mobile / Infra / Logs / Synthetics / Spans / Operators, each asserted to compile with confidence ≥ MEDIUM and matching expected DQL substrings.
+
 ### Added (Phase 03 — new Gen3 transformers)
 
 - `BrowserRUMTransformer` — NR Browser app config → `builtin:rum.web.app-detection` + OpenPipeline bizevents mapping (PageView/PageAction/BrowserInteraction/AjaxRequest/JavaScriptError → rum.*). Core Web Vitals note. Manual steps: RUM JS agent deployment, CSP allowlist, Session Replay activation.

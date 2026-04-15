@@ -126,14 +126,14 @@
 |-----------|-------------|---------------|--------|
 | Alert Policy | Gen3 Workflow (`trigger.event.config.davis_problem`) | transformers/alert | ✅ Gen3 default (legacy opt-in) |
 | NRQL Condition (static threshold) | Metric Event (`builtin:anomaly-detection.metric-events`) with DQL | transformers/alert | ✅ wired via `entity_tags` to companion Workflow |
-| NRQL Condition (baseline) | Davis adaptive baseline (`builtin:davis.anomaly-detectors`) | — | 🔴 Phase 04 |
-| NRQL Condition (outlier) | Davis outlier detection | — | 🔴 Phase 04 |
-| APM Condition | Davis adaptive baseline | — | 🟡 flag-as-manual |
-| Infrastructure Condition | Metric Event + Workflow | — | 🔴 non-NRQL condition translator (Phase 04) |
-| Synthetic Condition | Metric Event on synthetic results | — | 🔴 Phase 04 |
-| External Service Condition | Metric Event on service deps | — | 🔴 Phase 04 |
-| Mobile / Browser Condition | Metric Event on RUM metrics | — | 🔴 Phase 04 |
-| Multi-location Synthetic Condition | Metric Event w/ location-count | — | 🔴 Phase 04 |
+| NRQL Condition (baseline) | Davis adaptive baseline (`builtin:davis.anomaly-detectors`) | transformers/baseline-alert | ✅ |
+| NRQL Condition (outlier) | Davis outlier detection | transformers/baseline-alert | ✅ |
+| APM Condition | Metric Event on mapped builtin:service.* | transformers/non-nrql-alert | ✅ |
+| Infrastructure Condition | Metric Event + Workflow | transformers/non-nrql-alert | ✅ |
+| Synthetic Condition | Metric Event on synthetic results | transformers/non-nrql-alert | ✅ |
+| External Service Condition | Metric Event on service deps | transformers/non-nrql-alert | ✅ |
+| Mobile / Browser Condition | Metric Event on RUM metrics | transformers/non-nrql-alert | ✅ |
+| Multi-location Synthetic Condition | Metric Event w/ location-count | — | 🟡 covered via SYNTHETIC condition path; location-count logic requires manual DQL |
 | Lookup tables (WHERE IN) | DQL `lookup` subquery | transformers/lookup-table | ✅ |
 | Notification Channel — Email | Workflow task `dynatrace.email:email-action` | transformers/notification | ✅ Gen3 default (legacy opt-in) |
 | Notification Channel — Slack | Workflow task `dynatrace.slack:slack-action` | transformers/notification | ✅ |
@@ -145,9 +145,9 @@
 | Notification Channel — ServiceNow | Workflow task `dynatrace.servicenow:incident-action` | transformers/notification | ✅ |
 | Notification Channel — Teams | Workflow HTTP task | transformers/notification | ✅ |
 | Notification Channel — VictorOps | Workflow HTTP task | transformers/notification | ✅ |
-| Incident preferences (PER_POLICY/CONDITION/TARGET) | Workflow trigger filters + grouping | — | 🔴 Phase 04 |
-| Mute rules (NRQL-based) | Metric Event w/ embedded filter | — | 🔴 Phase 04 (with maintenance windows) |
-| Maintenance windows (scheduled, recurring) | `dynatrace_maintenance` (Gen3) | — | 🔴 MaintenanceWindowTransformer (Phase 04) |
+| Incident preferences (PER_POLICY/CONDITION/TARGET) | Workflow trigger filters + grouping | transformers/alert + transformers/aiops | 🟡 aggregation via entity-tag match is emitted; PER_TARGET grouping semantics require manual Workflow grouping step |
+| Mute rules (NRQL-based) | Maintenance window + filter segment / Workflow suppression | transformers/maintenance-window | ✅ emits filterSegmentDql TODO — NRQL is preserved for compile-through |
+| Maintenance windows (scheduled, recurring) | `builtin:alerting.maintenance-window` | transformers/maintenance-window | ✅ |
 
 ## 8. AIOps / Applied Intelligence
 
@@ -159,7 +159,7 @@
 | Destinations (webhook targets) | Workflow tasks | transformers/aiops + transformers/notification | ✅ |
 | Enrichments (NRQL-based context injection) | Workflow enrichment steps | transformers/aiops | ✅ emits `dynatrace.automations:run-query` tasks with NRQL-to-DQL TODO placeholders |
 | Proactive detection (APM auto-baselines) | Davis adaptive baselines | — | ⚫ platform feature |
-| Anomaly detection settings | Davis anomaly detection | — | 🔴 Phase 04 |
+| Anomaly detection settings | Davis anomaly detection | transformers/baseline-alert | ✅ |
 
 ## 9. Service Level Management
 
