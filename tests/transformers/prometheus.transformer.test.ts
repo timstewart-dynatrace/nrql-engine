@@ -55,4 +55,114 @@ describe('PrometheusTransformer', () => {
     expect(result.warnings.some((w) => w.includes('metrics.ingest'))).toBe(true);
     expect(result.warnings.some((w) => w.includes('ActiveGate'))).toBe(true);
   });
+
+  it('should translate action=drop to OpenPipeline drop matcher', () => {
+    const result = transformer.transform({
+      relabelConfigs: [
+        { action: 'drop', source_labels: ['__name__'], regex: 'go_.*' },
+      ],
+    });
+    expect(result.data!.openPipelineRules).toHaveLength(1);
+    const rule = result.data!.openPipelineRules[0]!;
+    expect(rule.schemaId).toBe('builtin:openpipeline.metrics.drop');
+    expect(rule.matcher).toBe('matchesValue(__name__, "go_.*")');
+  });
+
+  it('should translate action=keep to inverse-match drop', () => {
+    const result = transformer.transform({
+      relabelConfigs: [
+        { action: 'keep', source_labels: ['__name__'], regex: '(http|db)_.*' },
+      ],
+    });
+    const rule = result.data!.openPipelineRules[0]!;
+    expect(rule.schemaId).toBe('builtin:openpipeline.metrics.drop');
+    expect(rule.matcher).toBe('not matchesValue(__name__, "(http|db)_.*")');
+  });
+
+  it('should translate action=replace to fieldsAdd transform', () => {
+    const result = transformer.transform({
+      relabelConfigs: [
+        {
+          action: 'replace',
+          source_labels: ['app'],
+          regex: '(.*)',
+          target_label: 'service.name',
+          replacement: '$1',
+        },
+      ],
+    });
+    const rule = result.data!.openPipelineRules[0]!;
+    expect(rule.schemaId).toBe('builtin:openpipeline.metrics.transform');
+    if (rule.schemaId === 'builtin:openpipeline.metrics.transform') {
+      expect(rule.fieldsAdd?.[0]).toEqual({ field: 'service.name', value: '$1' });
+    }
+  });
+
+  it('should warn when replace is missing target_label', () => {
+    const result = transformer.transform({
+      relabelConfigs: [{ action: 'replace', source_labels: ['x'], regex: '.*' }],
+    });
+    expect(result.data!.openPipelineRules).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes('missing target_label'))).toBe(true);
+  });
+
+  it('should translate action=labeldrop to fieldsRemove', () => {
+    const result = transformer.transform({
+      relabelConfigs: [{ action: 'labeldrop', regex: 'temp_.*' }],
+    });
+    const rule = result.data!.openPipelineRules[0]!;
+    if (rule.schemaId === 'builtin:openpipeline.metrics.transform') {
+      expect(rule.fieldsRemove).toEqual(['temp_.*']);
+    }
+  });
+
+  it('should translate action=labelkeep with inverse regex', () => {
+    const result = transformer.transform({
+      relabelConfigs: [{ action: 'labelkeep', regex: 'job|instance' }],
+    });
+    const rule = result.data!.openPipelineRules[0]!;
+    if (rule.schemaId === 'builtin:openpipeline.metrics.transform') {
+      expect(rule.fieldsRemove?.[0]).toContain('(?!job|instance');
+    }
+  });
+
+  it('should translate action=labelmap to fieldsRename', () => {
+    const result = transformer.transform({
+      relabelConfigs: [
+        { action: 'labelmap', regex: '__meta_kubernetes_pod_label_(.+)', replacement: '$1' },
+      ],
+    });
+    const rule = result.data!.openPipelineRules[0]!;
+    if (rule.schemaId === 'builtin:openpipeline.metrics.transform') {
+      expect(rule.fieldsRename?.[0]).toEqual({
+        from: '__meta_kubernetes_pod_label_(.+)',
+        to: '$1',
+      });
+    }
+  });
+
+  it('should warn and skip action=hashmod', () => {
+    const result = transformer.transform({
+      relabelConfigs: [
+        { action: 'hashmod', source_labels: ['instance'], modulus: 4 },
+      ],
+    });
+    expect(result.data!.openPipelineRules).toHaveLength(0);
+    expect(result.warnings.some((w) => w.includes('hashmod'))).toBe(true);
+  });
+
+  it('should concat multiple source_labels with separator', () => {
+    const result = transformer.transform({
+      relabelConfigs: [
+        {
+          action: 'drop',
+          source_labels: ['job', 'instance'],
+          separator: ':',
+          regex: 'api:foo',
+        },
+      ],
+    });
+    const rule = result.data!.openPipelineRules[0]!;
+    expect(rule.matcher).toContain('toString(job) + ":" + toString(instance)');
+  });
 });

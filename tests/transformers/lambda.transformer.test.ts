@@ -44,6 +44,54 @@ describe('LambdaTransformer', () => {
     expect(off.data!.functionDetection.tracingEnabled).toBe(false);
   });
 
+  it('should resolve a per-region layer ARN for supported runtimes', () => {
+    const result = transformer.transform({
+      functionArn: 'arn:aws:lambda:eu-west-1:1:function:fn',
+      runtime: 'python',
+    });
+    expect(result.data!.resolvedLayerArn).toBe(
+      'arn:aws:lambda:eu-west-1:725887861453:layer:Dynatrace_OneAgent_python:<version>',
+    );
+  });
+
+  it('should not emit a layer ARN for go runtime (compiled-in)', () => {
+    const result = transformer.transform({
+      functionArn: 'arn:aws:lambda:us-east-1:1:function:fn',
+      runtime: 'go',
+    });
+    expect(result.data!.resolvedLayerArn).toBeUndefined();
+  });
+
+  it('should warn and omit ARN for unsupported regions (GovCloud / China)', () => {
+    const result = transformer.transform({
+      functionArn: 'arn:aws:lambda:us-gov-west-1:1:function:fn',
+      runtime: 'nodejs',
+    });
+    expect(result.data!.resolvedLayerArn).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('GovCloud'))).toBe(true);
+  });
+
+  it('should resolve layer ARNs across commercial regions', () => {
+    const regions = [
+      'us-east-1',
+      'us-west-2',
+      'eu-central-1',
+      'eu-west-2',
+      'ap-southeast-2',
+      'ap-northeast-1',
+      'sa-east-1',
+      'ca-central-1',
+    ];
+    for (const region of regions) {
+      const result = transformer.transform({
+        functionArn: `arn:aws:lambda:${region}:1:function:fn`,
+        runtime: 'nodejs',
+      });
+      expect(result.data!.resolvedLayerArn).toContain(region);
+      expect(result.data!.resolvedLayerArn).toContain('Dynatrace_OneAgent_nodejs');
+    }
+  });
+
   it('should produce per-runtime layer instructions', () => {
     const runtimes = ['nodejs', 'python', 'java', 'dotnet', 'go', 'ruby', 'custom'] as const;
     for (const runtime of runtimes) {

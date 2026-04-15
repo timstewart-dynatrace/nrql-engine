@@ -132,9 +132,12 @@ export type {
 export { PrometheusTransformer } from './prometheus.transformer.js';
 export type {
   NRPrometheusIntegrationInput,
+  PrometheusRelabelConfig,
+  PrometheusRelabelAction,
   PrometheusTransformData,
   DTPrometheusRemoteWrite,
   DTPrometheusScrapeConfig,
+  DTOpenPipelineMetricRule,
 } from './prometheus.transformer.js';
 
 // StatsD transformer (Gen3)
