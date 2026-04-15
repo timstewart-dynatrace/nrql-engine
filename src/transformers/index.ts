@@ -83,11 +83,14 @@ export type {
   DTSlo,
 } from './slo.transformer.js';
 
-// Workload transformer
-export { WorkloadTransformer } from './workload.transformer.js';
+// Workload transformer (Gen3 default + Gen2 legacy opt-in)
+export { WorkloadTransformer, LegacyWorkloadTransformer } from './workload.transformer.js';
 export type {
   NRWorkloadInput,
   NRWorkloadEntity,
+  DTSegment,
+  DTSegmentInclude,
+  DTSegmentFilterNode,
   DTManagementZone,
   DTManagementZoneRule,
 } from './workload.transformer.js';

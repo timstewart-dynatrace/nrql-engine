@@ -20,6 +20,7 @@ import {
   SyntheticScriptConverter,
   SLOTransformer,
   WorkloadTransformer,
+  LegacyWorkloadTransformer,
 } from '../../src/transformers/index.js';
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -992,164 +993,226 @@ describe('SLOTransformer', () => {
 // WorkloadTransformer
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('WorkloadTransformer', () => {
+describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
   let workloadTransformer: WorkloadTransformer;
 
   beforeEach(() => {
     workloadTransformer = new WorkloadTransformer();
   });
 
-  describe('WorkloadTransformResult', () => {
-    it('should default lists', () => {
-      const nr = {
-        name: 'Test',
-        collection: [{ name: 'app', type: 'APPLICATION' }],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.warnings).toBeDefined();
-      expect(result.errors).toBeDefined();
+  it('should emit Gen3 segment with manual-step warnings', () => {
+    const result = workloadTransformer.transform({
+      name: 'Production Services',
+      collection: [{ name: 'web-app', type: 'APPLICATION' }],
+    });
+    expect(result.success).toBe(true);
+    const seg = result.data!;
+    expect(seg.schemaId).toBe('builtin:segment');
+    expect(seg.name).toBe('[Migrated] Production Services');
+    expect(seg.isPublic).toBe(false);
+    expect(seg.includes.items).toHaveLength(1);
+    expect(seg.manualSteps.length).toBeGreaterThan(0);
+    expect(result.warnings.some((w) => w.includes('bucket-scoped IAM'))).toBe(true);
+  });
+
+  it('should group collection entities by data object', () => {
+    const result = workloadTransformer.transform({
+      name: 'Mixed',
+      collection: [
+        { name: 'web-app', type: 'APPLICATION' },
+        { name: 'api-server', type: 'APM_APPLICATION' },
+        { name: 'host-1', type: 'HOST' },
+      ],
+    });
+    const includes = result.data!.includes.items;
+    // APPLICATION + APM_APPLICATION both map to SERVICE→spans; HOST→logs
+    expect(includes.find((i) => i.dataObject === 'spans')).toBeDefined();
+    expect(includes.find((i) => i.dataObject === 'logs')).toBeDefined();
+  });
+
+  it('should emit Statement filter on service.name for APPLICATION', () => {
+    const result = workloadTransformer.transform({
+      name: 'Prod',
+      collection: [{ name: 'web-app', type: 'APPLICATION' }],
+    });
+    const include = result.data!.includes.items[0]!;
+    expect(include.dataObject).toBe('spans');
+    expect(include.filter).toEqual({
+      type: 'Statement',
+      key: { value: 'service.name' },
+      operator: { value: '=' },
+      value: { value: 'web-app' },
     });
   });
 
-  describe('workload transform', () => {
-    it('should transform workload with collection', () => {
-      const nr = {
-        name: 'Production Services',
-        collection: [
-          { name: 'web-app', type: 'APPLICATION' },
-          { name: 'api-server', type: 'APM_APPLICATION' },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const mz = result.data!;
-      expect(mz.name).toBe('[Migrated] Production Services');
-      expect(mz.rules).toHaveLength(2);
+  it('should OR-group multiple entities of same data object', () => {
+    const result = workloadTransformer.transform({
+      name: 'Services',
+      collection: [
+        { name: 'svc-a', type: 'APPLICATION' },
+        { name: 'svc-b', type: 'APPLICATION' },
+      ],
     });
-
-    it('should create tag rule when no entities', () => {
-      const nr = { name: 'Empty Workload', collection: [], entitySearchQueries: [] };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      expect(result.data!.rules).toHaveLength(1); // tag-based fallback
-      expect(result.data!.rules[0]!.entitySelector).toContain('tag(');
-    });
-
-    it('should handle unmapped entity types', () => {
-      const nr = {
-        name: 'Mixed',
-        collection: [
-          { name: 'dash-1', type: 'DASHBOARD' }, // No DT equivalent
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      expect(result.warnings.length).toBeGreaterThan(0);
-    });
+    const include = result.data!.includes.items[0]!;
+    expect(include.filter.type).toBe('Group');
+    if (include.filter.type === 'Group') {
+      expect(include.filter.logicalOperator).toBe('OR');
+      expect(include.filter.children).toHaveLength(2);
+    }
   });
 
-  describe('entity search queries', () => {
-    it('should convert type query', () => {
-      const nr = {
-        name: 'Apps',
-        entitySearchQueries: [
-          { query: "type = 'APPLICATION'" },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const rules = result.data!.rules;
-      expect(rules.length).toBeGreaterThanOrEqual(1);
-      expect(rules[0]!.entitySelector).toContain('SERVICE');
+  it('should fallback to tag-based segment when empty', () => {
+    const result = workloadTransformer.transform({
+      name: 'Empty Workload',
+      collection: [],
+      entitySearchQueries: [],
     });
-
-    it('should convert name like query', () => {
-      const nr = {
-        name: 'Prod',
-        entitySearchQueries: [
-          { query: "type = 'APPLICATION' AND name LIKE 'production%'" },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const rules = result.data!.rules;
-      expect(rules.some((r) => r.entitySelector.includes('entityName.contains'))).toBe(true);
-    });
-
-    it('should convert tag query', () => {
-      const nr = {
-        name: 'Tagged',
-        entitySearchQueries: [
-          { query: "type = 'HOST' AND tags.environment = 'production'" },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const rules = result.data!.rules;
-      expect(rules.some((r) => r.entitySelector.includes('tag('))).toBe(true);
-    });
+    expect(result.success).toBe(true);
+    const include = result.data!.includes.items[0]!;
+    expect(include.dataObject).toBe('_all_data_object');
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.key.value).toBe('migrated-workload');
+      expect(include.filter.value.value).toBe('empty-workload');
+    }
   });
 
-  describe('parse entity query', () => {
-    it('should extract entity type', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("type = 'APPLICATION'");
-      expect(parsed.entityType).toBe('APPLICATION');
+  it('should warn on unmapped entity types and skip them', () => {
+    const result = workloadTransformer.transform({
+      name: 'Mixed',
+      collection: [{ name: 'dash-1', type: 'DASHBOARD' }],
     });
-
-    it('should extract host type', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("type = 'HOST'");
-      expect(parsed.entityType).toBe('HOST');
-    });
-
-    it('should extract name filter', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("name LIKE 'prod%'");
-      expect(parsed.nameFilter).toBe('prod');
-    });
-
-    it('should extract tags', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("tags.env = 'prod'");
-      expect(parsed.tags).toContainEqual(['env', 'prod']);
-    });
+    expect(result.success).toBe(true);
+    expect(result.warnings.some((w) => w.includes('DASHBOARD'))).toBe(true);
   });
 
-  describe('create rules', () => {
-    it('should create name rule', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rule = (workloadTransformer as any).createNameRule('SERVICE', 'my-app');
-      expect(rule.type).toBe('ME');
-      expect(rule.enabled).toBe(true);
-      expect(rule.entitySelector).toContain('entityName.equals("my-app")');
+  it('should convert type query to type-filter statement', () => {
+    const result = workloadTransformer.transform({
+      name: 'Apps',
+      entitySearchQueries: [{ query: "type = 'APPLICATION'" }],
     });
-
-    it('should create tag rule', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rule = (workloadTransformer as any).createTagRule('My Workload');
-      expect(rule.entitySelector).toContain('tag("migrated-workload:my-workload")');
-    });
-
-    it('should sanitize tag value', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rule = (workloadTransformer as any).createTagRule('Special (chars) here!');
-      const selector = rule.entitySelector as string;
-      const tagContent = selector.split('tag(')[1]!.split(')')[0]!;
-      const tagValue = tagContent.replace('"migrated-workload:', '').replace('"', '');
-      expect(tagValue).not.toContain('(');
-    });
+    expect(result.success).toBe(true);
+    const include = result.data!.includes.items[0]!;
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.key.value).toBe('dt.entity.type');
+      expect(include.filter.value.value).toBe('SERVICE');
+    }
   });
 
-  describe('transform all', () => {
-    it('should transform multiple workloads', () => {
-      const workloads = [
-        { name: 'W1', collection: [{ name: 'app1', type: 'APPLICATION' }] },
-        { name: 'W2', collection: [{ name: 'host1', type: 'HOST' }] },
-      ];
-      const results = workloadTransformer.transformAll(workloads);
-      expect(results).toHaveLength(2);
-      expect(results.every((r) => r.success)).toBe(true);
+  it('should convert name-like query to contains statement', () => {
+    const result = workloadTransformer.transform({
+      name: 'Prod',
+      entitySearchQueries: [{ query: "type = 'APPLICATION' AND name LIKE 'production%'" }],
     });
+    const include = result.data!.includes.items[0]!;
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.operator.value).toBe('contains');
+      expect(include.filter.value.value).toBe('production');
+    }
+  });
+
+  it('should convert tag query to tag-key statement', () => {
+    const result = workloadTransformer.transform({
+      name: 'Tagged',
+      entitySearchQueries: [
+        { query: "type = 'HOST' AND tags.environment = 'production'" },
+      ],
+    });
+    const include = result.data!.includes.items[0]!;
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.key.value).toBe('environment');
+      expect(include.filter.value.value).toBe('production');
+    }
+  });
+});
+
+describe('LegacyWorkloadTransformer (Gen2 Management Zone)', () => {
+  let legacy: LegacyWorkloadTransformer;
+
+  beforeEach(() => {
+    legacy = new LegacyWorkloadTransformer();
+  });
+
+  it('should emit legacy warning', () => {
+    const result = legacy.transform({ name: 'Test', collection: [] });
+    expect(result.warnings[0]).toContain('Gen2');
+  });
+
+  it('should transform workload with collection', () => {
+    const nr = {
+      name: 'Production Services',
+      collection: [
+        { name: 'web-app', type: 'APPLICATION' },
+        { name: 'api-server', type: 'APM_APPLICATION' },
+      ],
+    };
+    const result = legacy.transform(nr);
+    expect(result.success).toBe(true);
+    const mz = result.data!;
+    expect(mz.name).toBe('[Migrated] Production Services');
+    expect(mz.rules).toHaveLength(2);
+  });
+
+  it('should create tag rule when no entities', () => {
+    const result = legacy.transform({
+      name: 'Empty Workload',
+      collection: [],
+      entitySearchQueries: [],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.rules).toHaveLength(1);
+    expect(result.data!.rules[0]!.entitySelector).toContain('tag(');
+  });
+
+  it('should handle unmapped entity types', () => {
+    const result = legacy.transform({
+      name: 'Mixed',
+      collection: [{ name: 'dash-1', type: 'DASHBOARD' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it('should convert type query', () => {
+    const result = legacy.transform({
+      name: 'Apps',
+      entitySearchQueries: [{ query: "type = 'APPLICATION'" }],
+    });
+    const rules = result.data!.rules;
+    expect(rules.length).toBeGreaterThanOrEqual(1);
+    expect(rules[0]!.entitySelector).toContain('SERVICE');
+  });
+
+  it('should convert name like query', () => {
+    const result = legacy.transform({
+      name: 'Prod',
+      entitySearchQueries: [{ query: "type = 'APPLICATION' AND name LIKE 'production%'" }],
+    });
+    expect(
+      result.data!.rules.some((r) => r.entitySelector.includes('entityName.contains')),
+    ).toBe(true);
+  });
+
+  it('should convert tag query', () => {
+    const result = legacy.transform({
+      name: 'Tagged',
+      entitySearchQueries: [{ query: "type = 'HOST' AND tags.environment = 'production'" }],
+    });
+    expect(result.data!.rules.some((r) => r.entitySelector.includes('tag('))).toBe(true);
+  });
+
+  it('should parse entity types in queries', () => {
+    expect(legacy.parseEntityQuery("type = 'APPLICATION'").entityType).toBe('APPLICATION');
+    expect(legacy.parseEntityQuery("type = 'HOST'").entityType).toBe('HOST');
+    expect(legacy.parseEntityQuery("name LIKE 'prod%'").nameFilter).toBe('prod');
+    expect(legacy.parseEntityQuery("tags.env = 'prod'").tags).toContainEqual(['env', 'prod']);
+  });
+
+  it('should transform multiple workloads', () => {
+    const results = legacy.transformAll([
+      { name: 'W1', collection: [{ name: 'app1', type: 'APPLICATION' }] },
+      { name: 'W2', collection: [{ name: 'host1', type: 'HOST' }] },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
   });
 });
