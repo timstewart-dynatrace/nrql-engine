@@ -48,15 +48,25 @@ describe('AIOpsTransformer', () => {
     });
   });
 
-  it('should emit enrichment tasks with TODO DQL placeholder', () => {
+  it('should compile enrichment NRQL to DQL via NRQLCompiler', () => {
     const result = transformer.transform({
       name: 'W',
       enrichments: [{ name: 'Error context', nrql: 'SELECT count(*) FROM TransactionError' }],
     });
     expect(result.data!.workflow.tasks).toHaveLength(1);
     expect(result.data!.workflow.tasks[0]!.action).toBe('dynatrace.automations:run-query');
-    expect(result.data!.workflow.tasks[0]!.input.query).toContain('TODO');
-    expect(result.warnings.some((w) => w.includes('Error context'))).toBe(true);
+    expect(result.data!.workflow.tasks[0]!.input.query).toContain('fetch spans');
+    expect(result.data!.workflow.tasks[0]!.input.query).not.toContain('TODO');
+    expect(result.data!.workflow.tasks[0]!.description).toMatch(/confidence: (HIGH|MEDIUM)/);
+  });
+
+  it('should emit a placeholder when enrichment NRQL is empty', () => {
+    const result = transformer.transform({
+      name: 'W',
+      enrichments: [{ name: 'Empty', nrql: '' }],
+    });
+    expect(result.data!.workflow.tasks[0]!.input.query).toBe('fetch events, from:-1h');
+    expect(result.warnings.some((w) => w.includes('Empty enrichment'))).toBe(true);
   });
 
   it('should emit notification task stubs per destination', () => {
@@ -170,7 +180,7 @@ describe('AIOpsTransformer v2', () => {
     expect(result.warnings.some((w) => w.includes('customField'))).toBe(true);
   });
 
-  it('should translate nrqlEnrichments into run-query tasks with TODO', () => {
+  it('should compile v2 nrqlEnrichments through NRQLCompiler', () => {
     const result = transformer.transformV2({
       name: 'W',
       enrichments: {
@@ -180,7 +190,9 @@ describe('AIOpsTransformer v2', () => {
       },
     });
     expect(result.data!.workflow.tasks).toHaveLength(1);
-    expect(result.data!.workflow.tasks[0]!.input.query).toContain('TODO');
+    expect(result.data!.workflow.tasks[0]!.input.query).toContain('fetch spans');
+    expect(result.data!.workflow.tasks[0]!.input.query).not.toContain('TODO');
+    expect(result.data!.workflow.tasks[0]!.description).toMatch(/confidence/);
   });
 
   it('should warn on dashboard enrichments (must be re-linked post-migration)', () => {

@@ -243,6 +243,31 @@ export type {
   DTLookupUploadManifest,
 } from './lookup-table.transformer.js';
 
+// Specialized synthetic monitors (cert check + broken links)
+export {
+  SyntheticCertificateCheckTransformer,
+  SyntheticBrokenLinksTransformer,
+} from './synthetic-specialized.transformer.js';
+export type {
+  NRCertCheckMonitorInput,
+  NRBrokenLinksMonitorInput,
+  CertCheckTransformData,
+  BrokenLinksTransformData,
+  DTHttpMonitorWithCertValidation,
+  DTBrokenLinksPackage,
+} from './synthetic-specialized.transformer.js';
+
+// OTel Metrics (direct OTLP) transformer (Gen3)
+export { OpenTelemetryMetricsTransformer } from './otel-metrics.transformer.js';
+export type {
+  NROtelMetricsInput,
+  NROtelMetricTemporality,
+  NROtelHistogramLayout,
+  OtelMetricsTransformData,
+  DTOtelMetricsExporter,
+  DTOtelMetricsIngestSettings,
+} from './otel-metrics.transformer.js';
+
 // Key Transaction transformer (Gen3)
 export { KeyTransactionTransformer } from './key-transaction.transformer.js';
 export type {

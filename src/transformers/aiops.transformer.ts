@@ -13,6 +13,35 @@
 
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
+import { NRQLCompiler } from '../compiler/index.js';
+
+const enrichmentCompiler = new NRQLCompiler();
+
+function compileEnrichmentNrql(nrql: string): { dql: string; confidence: string; warnings: string[] } {
+  const trimmed = (nrql ?? '').trim();
+  if (!trimmed) {
+    return {
+      dql: 'fetch events, from:-1h',
+      confidence: 'LOW',
+      warnings: ['Empty enrichment NRQL — emitted a default `fetch events` placeholder.'],
+    };
+  }
+  const result = enrichmentCompiler.compile(trimmed);
+  if (!result.success) {
+    return {
+      dql: `// NRQL source: ${trimmed}\n// compiler error: ${result.error}\nfetch events, from:-1h`,
+      confidence: 'LOW',
+      warnings: [
+        `Enrichment NRQL failed to compile (${result.error}); emitted a placeholder. Rewrite the query manually.`,
+      ],
+    };
+  }
+  return {
+    dql: result.dql,
+    confidence: result.confidence,
+    warnings: result.warnings,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Input
@@ -175,19 +204,20 @@ export class AIOpsTransformer {
 
       const tasks: DTWorkflowEnrichment[] = [];
       for (const enrich of input.enrichments ?? []) {
+        const compiled = compileEnrichmentNrql(enrich.nrql);
         tasks.push({
           name: enrich.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
           action: 'dynatrace.automations:run-query',
-          description: `[Migrated enrichment] ${enrich.name}`,
+          description: `[Migrated enrichment] ${enrich.name} (confidence: ${compiled.confidence})`,
           active: true,
           input: {
-            query: `# NRQL source: ${enrich.nrql}\n# TODO: translate via nrql-engine compiler before use\nfetch events, from:-1h`,
+            query: compiled.dql,
             resultKey: enrich.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
           },
         });
-        warnings.push(
-          `Enrichment '${enrich.name}' carries a TODO DQL placeholder — run the NRQL through the compiler and replace before enabling.`,
-        );
+        for (const w of compiled.warnings) {
+          warnings.push(`Enrichment '${enrich.name}': ${w}`);
+        }
       }
 
       const notificationTaskStubs = (input.destinations ?? []).map((d) => ({
@@ -289,22 +319,23 @@ export class AIOpsTransformer {
         );
       }
 
-      // Enrichments → run-query tasks (NRQL embedded as TODO).
+      // Enrichments → run-query tasks with compiled DQL via NRQLCompiler.
       const tasks: DTWorkflowEnrichment[] = [];
       for (const e of input.enrichments?.nrqlEnrichments ?? []) {
+        const compiled = compileEnrichmentNrql(e.query);
         tasks.push({
           name: e.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
           action: 'dynatrace.automations:run-query',
-          description: `[Migrated v2 enrichment] ${e.name}`,
+          description: `[Migrated v2 enrichment] ${e.name} (confidence: ${compiled.confidence})`,
           active: true,
           input: {
-            query: `# NRQL source: ${e.query}\n# TODO: translate via nrql-engine compiler before use\nfetch events, from:-1h`,
+            query: compiled.dql,
             resultKey: e.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
           },
         });
-        warnings.push(
-          `v2 nrqlEnrichment '${e.name}' carries a TODO DQL placeholder — run the NRQL through the compiler.`,
-        );
+        for (const w of compiled.warnings) {
+          warnings.push(`v2 enrichment '${e.name}': ${w}`);
+        }
       }
       for (const d of input.enrichments?.dashboardEnrichments ?? []) {
         warnings.push(

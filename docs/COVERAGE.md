@@ -43,7 +43,7 @@
 | `FROM Transaction` / `Span` / `TransactionError` | `fetch spans` | compiler | ✅ |
 | Service Map (user annotations) | Smartscape (auto-inferred) | — | ⚫ platform feature, no config to migrate |
 | Distributed tracing / PurePath | DT distributed tracing | compiler (query) | ✅ |
-| Key Transactions | critical-service flag + Workflow + DQL SLO | — | 🔴 Phase 09 |
+| Key Transactions | critical-service flag + Workflow + DQL SLO | transformers/key-transaction | ✅ |
 | Apdex score | `countIf()` buckets in DQL | compiler | 🟡 LOW-confidence translation |
 | Deployment markers (APM deployment API) | DT deployment events API | transformers/change-tracking | ✅ |
 | Error profiles | Davis Problems | — | ⚫ platform feature |
@@ -96,7 +96,7 @@
 | Prometheus integration | DT Prometheus ingestion | transformers/prometheus | ✅ remote-write + scrape + all 7 relabel actions (drop/keep/replace/labeldrop/labelkeep/labelmap; hashmod warns) |
 | StatsD ingestion | DT StatsD ingestion | transformers/statsd | 🟡 minimal ActiveGate pointer; no tag mapping detail (Phase 08) |
 | OpenTelemetry collector config | DT OTLP ingestion | transformers/otel-collector | ✅ endpoint + processor pipeline (attributes / filter / batch / memory_limiter / resource / unknown-passthrough) |
-| OpenTelemetry metrics pipeline (direct OTLP, non-collector) | DT OTLP metrics ingest + semconv mapping | — | 🔴 Phase 09 |
+| OpenTelemetry metrics pipeline (direct OTLP, non-collector) | DT OTLP metrics ingest + semconv mapping | transformers/otel-metrics | ✅ DELTA/CUMULATIVE + histogram layout + semconv guidance |
 | NR Flex (custom scripts) | OneAgent extensions / OTel collector | — | ⚫ script rewrite, not automatable |
 | Infra-agent log collection | OneAgent log collection | — | 🟡 reconfigure at forwarder level |
 
@@ -107,8 +107,8 @@
 | Simple Ping / Browser / Scripted API | `builtin:synthetic_test` (HTTP / Browser / Multi-step) | transformers/synthetic | ✅ |
 | Scripted Browser | DT Browser Monitor (clickpath) | transformers/synthetic | 🟡 scaffold only — manual rebuild |
 | Step Monitor (legacy) | DT Browser Monitor | transformers/synthetic | 🟡 scaffold |
-| Certificate Check | DT HTTP Monitor w/ cert validation | — | 🔴 extend SyntheticTransformer (Phase 03) |
-| Broken Links | reformulate as custom DQL + alert | — | 🔴 Phase 03 |
+| Certificate Check | DT HTTP Monitor w/ cert validation | transformers/synthetic-specialized | ✅ |
+| Broken Links | Browser crawl + DQL detection + Metric Event | transformers/synthetic-specialized | ✅ |
 | Secure credentials | DT credentials vault | — | ⚫ secrets don't migrate |
 | Public locations | DT public locations (region map) | transformers/synthetic | ✅ |
 | Private locations / minions | DT ActiveGate synthetic capability | — | ⚫ infrastructure deployment |
@@ -170,7 +170,7 @@
 | NR Workflows v2 (new UI, different shape) | DT Gen3 Workflows | transformers/aiops (transformV2) | ✅ predicate translation + mutingRulesHandling + enrichments + destinationConfigurations |
 | Suppression / Golden Signal tuning | Davis anomaly settings | — | 🔴 Phase 10 |
 | Destinations (webhook targets) | Workflow tasks | transformers/aiops + transformers/notification | ✅ |
-| Enrichments (NRQL-based context injection) | Workflow enrichment steps | transformers/aiops | ✅ emits `dynatrace.automations:run-query` tasks with NRQL-to-DQL TODO placeholders |
+| Enrichments (NRQL-based context injection) | Workflow enrichment steps | transformers/aiops | ✅ NRQL compiled through NRQLCompiler; confidence band reported on each enrichment task |
 | Proactive detection (APM auto-baselines) | Davis adaptive baselines | — | ⚫ platform feature |
 | Anomaly detection settings | Davis anomaly detection | transformers/baseline-alert | ✅ |
 
@@ -179,7 +179,7 @@
 | NR Surface | Gen3 Target | Engine Module | Status |
 |-----------|-------------|---------------|--------|
 | SLO (v1 / v2) | `builtin:monitoring.slo` | transformers/slo | ✅ |
-| Service Levels v3 API (SL v3) | `builtin:monitoring.slo` v2 schema | transformers/slo | 🟡 v3 input shape not yet round-tripped (Phase 09) |
+| Service Levels v3 API (SL v3) | `builtin:monitoring.slo` v2 schema | transformers/slo (transformV3) | ✅ rolling + calendar-aligned windows, badEventsNrql, entityGuid filter |
 | SLI query (NRQL) | DT SLO metric expression (DQL) | transformers/slo + compiler | ✅ |
 | Error budget burn-rate alerts | Burn-rate Metric Event on SLI | — | 🟡 requires alert Gen3 (Phase 02) |
 
@@ -208,7 +208,7 @@
 | User types (Full / Core / Basic) | DT license types | — | ⚫ licensing, not config |
 | Authentication domains | DT auth settings | transformers/identity | ✅ |
 | SAML SSO | DT SAML IdP config | transformers/identity | ✅ |
-| SCIM provisioning | DT SCIM | — | 🟡 flagged as manual follow-up per IdentityTransformer warnings |
+| SCIM provisioning | DT SCIM | transformers/identity (translateScimFilter) | ✅ SCIM v2 filter syntax translated (userName / emails.value / name.* / active → DT attrs) |
 | Default roles | DT built-in policies | transformers/identity | ✅ |
 | Custom roles | DT custom IAM policies (bucket-scoped) | transformers/identity | ✅ common permissions mapped; unmapped permissions emit TODO placeholders |
 | Product-level permissions | DT scoped policies | transformers/identity | ✅ |
@@ -244,7 +244,7 @@
 | Entity golden signals | Davis signals | — | ⚫ platform feature |
 | Entity health status | Problem severity / Davis | — | ⚫ platform feature |
 | Entity relationships | Smartscape | — | ⚫ auto-discovered |
-| Custom entities | DT custom device entities | — | 🔴 Phase 03 |
+| Custom entities | DT custom device entities | transformers/custom-entity | ✅ /api/v2/entities/custom payload |
 
 ## 15. Data Management
 

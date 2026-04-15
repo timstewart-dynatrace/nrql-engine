@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 09 — net-new translators)
+
+All 8 P09-NN work items landed. COVERAGE.md flipped for each.
+
+- **P09-01 KeyTransactionTransformer** — NR Key Transactions → critical-service entity tag + `builtin:monitoring.slo` + davis_problem Workflow (shared nr-migrated + critical-service entityTags bind the triple).
+- **P09-07 CustomEntityTransformer** — NR custom entities → DT `/api/v2/entities/custom` payloads with stable `customDeviceId` (NR guid or derived slug with warning), tag/property/ipAddress/listenPorts passthrough.
+- **P09-02 SLOTransformer.transformV3** — Service Levels v3 API shape (sli.nrql + badEventsNrql + rolling or calendar-aligned timeWindow + entityGuid filter). v1/v2 paths preserved.
+- **P09-03 MaintenanceWindowTransformer `rrule`** — RFC 5545 strings (FREQ=DAILY/WEEKLY/MONTHLY; BYDAY with position prefix stripping; warnings on BYMONTH / BYSETPOS / COUNT / UNTIL / INTERVAL≠1; YEARLY downgraded to MONTHLY). Exported `parseRrule` helper.
+- **P09-06 translateScimFilter** — NR SCIM v2 → DT SCIM attribute renaming (userName / emails.value → email; name.givenName / name.familyName → firstName / lastName; active → enabled). Preserves logical operators unchanged. Warns on `meta.*` references.
+- **P09-04 AIOps enrichment compile-through** — v1 + v2 AIOps enrichment NRQL now compiles via NRQLCompiler instead of emitting TODO placeholders; task description reports the compiler confidence band.
+- **P09-05 OpenTelemetryMetricsTransformer** — direct-OTLP metrics exporter translation (distinct from the collector path). Covers temporality (DELTA/CUMULATIVE), histogram layout (EXPONENTIAL/EXPLICIT_BUCKET), export interval, resource-attribute semconv guidance. Emits `builtin:otel.metrics.ingest` settings.
+- **P09-08 Synthetic Certificate Check + Broken Links** — `SyntheticCertificateCheckTransformer` emits HTTP monitor with `certificateValidity` + `certificateExpiration` validation rules. `SyntheticBrokenLinksTransformer` emits a package: Browser Monitor stub (with clickpath TODO) + DQL detection query + Metric Event shape for Workflow wiring.
+
+Tests: 1099 → 1155 (+56). Typecheck clean.
+
 ### Added (Phase 08 — depth passes on shipped transformers)
 
 All ten P08-NN work items landed. Every previously ✅* / 🟡 row from the Phase 07 audit flipped to plain ✅.
