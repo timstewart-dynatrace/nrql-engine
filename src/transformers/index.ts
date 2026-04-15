@@ -118,6 +118,39 @@ export type {
   DTAutoTagRule,
 } from './tag.transformer.js';
 
+// Non-NRQL alert condition transformer (Gen3)
+export { NonNrqlAlertConditionTransformer } from './non-nrql-alert.transformer.js';
+export type {
+  NRNonNrqlConditionType,
+  NRNonNrqlConditionInput,
+  NonNrqlAlertTransformData,
+} from './non-nrql-alert.transformer.js';
+
+// Baseline / outlier alert transformer (Gen3)
+export { BaselineAlertTransformer } from './baseline-alert.transformer.js';
+export type {
+  NRBaselineDirection,
+  NRBaselineSensitivity,
+  NRBaselineKind,
+  NRBaselineConditionInput,
+  BaselineAlertTransformData,
+  DTDavisAnomalyDetector,
+  DTAnomalyDirection,
+  DTAnomalySensitivity,
+} from './baseline-alert.transformer.js';
+
+// Maintenance window transformer (Gen3)
+export { MaintenanceWindowTransformer } from './maintenance-window.transformer.js';
+export type {
+  NRMaintenanceKind,
+  NRMaintenanceRecurrence,
+  NRDayOfWeek,
+  NRMaintenanceWindowInput,
+  MaintenanceWindowTransformData,
+  DTMaintenanceWindow,
+  DTSuppressionMode,
+} from './maintenance-window.transformer.js';
+
 // Identity transformer (Gen3)
 export { IdentityTransformer } from './identity.transformer.js';
 export type {
