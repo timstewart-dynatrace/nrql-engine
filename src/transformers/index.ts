@@ -118,6 +118,33 @@ export type {
   DTAutoTagRule,
 } from './tag.transformer.js';
 
+// Cloud integration transformer (Gen3)
+export { CloudIntegrationTransformer } from './cloud-integration.transformer.js';
+export type {
+  NRCloudProvider,
+  NRCloudIntegrationInput,
+  CloudIntegrationTransformData,
+  DTCloudIntegration,
+  DTCloudService,
+} from './cloud-integration.transformer.js';
+
+// Lambda transformer (Gen3)
+export { LambdaTransformer } from './lambda.transformer.js';
+export type {
+  NRLambdaRuntime,
+  NRLambdaFunctionInput,
+  LambdaTransformData,
+  DTServerlessFunctionDetection,
+} from './lambda.transformer.js';
+
+// Kubernetes transformer (Gen3)
+export { KubernetesTransformer } from './kubernetes.transformer.js';
+export type {
+  NRKubernetesClusterInput,
+  KubernetesTransformData,
+  DTDynaKubeManifest,
+} from './kubernetes.transformer.js';
+
 // Custom event transformer (Gen3)
 export { CustomEventTransformer } from './custom-event.transformer.js';
 export type {
