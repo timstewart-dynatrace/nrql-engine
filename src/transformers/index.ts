@@ -118,6 +118,36 @@ export type {
   DTAutoTagRule,
 } from './tag.transformer.js';
 
+// Custom event transformer (Gen3)
+export { CustomEventTransformer } from './custom-event.transformer.js';
+export type {
+  NRCustomEventTypeInput,
+  NRCustomEventAttribute,
+  CustomEventTransformData,
+  DTBizeventIngestRule,
+  DTBizeventProcessingRule,
+} from './custom-event.transformer.js';
+
+// Mobile RUM transformer (Gen3)
+export { MobileRUMTransformer } from './mobile-rum.transformer.js';
+export type {
+  NRMobileAppInput,
+  NRMobilePlatform,
+  MobileRUMTransformData,
+  DTMobileAppDetection,
+  DTMobileEventMapping,
+} from './mobile-rum.transformer.js';
+
+// Browser RUM transformer (Gen3)
+export { BrowserRUMTransformer } from './browser-rum.transformer.js';
+export type {
+  NRBrowserAppInput,
+  BrowserRUMTransformData,
+  DTRumAppDetection,
+  DTRumEventMapping,
+  DTCoreWebVitalsNote,
+} from './browser-rum.transformer.js';
+
 // Drop rule transformer
 export { DropRuleTransformer } from './drop-rule.transformer.js';
 export type {
