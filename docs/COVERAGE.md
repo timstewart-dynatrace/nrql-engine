@@ -49,7 +49,7 @@
 | Error profiles | Davis Problems | — | ⚫ platform feature |
 | Thread profiler / X-Ray | DT code profiling | — | ⚫ platform feature |
 | APM agent uninstall + OneAgent install (per language) | OneAgent deployment | — | ⚫ out-of-scope (host ops; see OUT-OF-SCOPE.md) |
-| Custom instrumentation (`newrelic.*()`) | OneAgent SDK / OTel SDK | — | 🔴 Phase 10 AST translator |
+| Custom instrumentation (`newrelic.*()`) | OneAgent SDK / OTel SDK | transformers/custom-instrumentation | ✅ JS/TS/Python/Java pattern matcher; emits `TranslationSuggestion[]` (no file rewriting) |
 | `newrelic.recordCustomEvent()` | `bizevent.ingest` | transformers/custom-event | ✅ |
 | `newrelic.addCustomAttribute()` | OneAgent SDK CRA | — | 🔴 Phase 10 |
 | `newrelic.recordMetric()` | OTel Meter API | — | 🔴 Phase 10 |
@@ -265,9 +265,9 @@
 |-----------|-------------|---------------|--------|
 | Kubernetes navigator / Cluster explorer | DT Kubernetes app | transformers/kubernetes | ✅ emits DynaKube CR |
 | Lambda / serverless monitoring | DT serverless / Lambda extension | transformers/lambda | ✅ per-runtime layer guidance |
-| Vulnerability Management | DT Application Security | — | 🔴 Phase 10 (stretch) |
-| Network Performance Monitoring / NPM / DDI | DT Network monitoring + extensions | — | 🔴 Phase 10 (stretch) |
-| AI Monitoring / MLM | DT AI Observability | — | 🔴 Phase 10 (stretch) |
+| Vulnerability Management | DT Application Security | transformers/vulnerability | ✅ RVA settings + muting rules + license-policy runbook |
+| Network Performance Monitoring / NPM / DDI | DT Network monitoring + extensions | transformers/npm | ✅ SNMP extension + NetFlow/IPFIX/sFlow ingest |
+| AI Monitoring / MLM | DT AI Observability | transformers/ai-monitoring | ✅ model registry + bizevent attr rewrites to DT AIO conventions |
 | Database Monitoring (NRDM) | DT DB extensions + `dt.services.database.*` | — | 🔴 Phase 10 |
 | IoT / Embedded | OTel | — | ⚫ no direct equivalent |
 | Security signals | DT Security Investigator | — | 🔴 Phase 10 (stretch) |

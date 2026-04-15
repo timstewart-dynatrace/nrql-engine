@@ -7,6 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added (Phase 11 — Dynatrace-NewRelic back-ports)
+
+Six library-appropriate capabilities back-ported from the Python `Dynatrace-NewRelic` CLI (survey 2026-04-15). Three candidates (NRDB archive, agent host-ops orchestrators, Lambda layer ARN already covered) confirmed out-of-scope.
+
+- **P11-01 Phase 19 confidence uplift** — `applyPhase19Uplift()` now runs inside `NRQLCompiler.compile()`. Raises confidence (never lowers) when the emitter successfully carried `apdex(t)` / `COMPARE WITH` / `rate(count,N)` / `percentage(count, WHERE)` rewrites. Audit-trail `phase19:` entries land on `fixes[]`. Exported standalone helper.
+- **P11-02 CustomInstrumentationTransformer** — JS/TS/Python/Java pattern matcher emitting `TranslationSuggestion[]` across 6 API categories (custom_event / custom_attribute / custom_metric / error_capture / transaction_naming / segment). Never rewrites files.
+- **P11-03 VulnerabilityManagementTransformer** — `builtin:appsec.runtime-vulnerability-analytics` + muting rules + SCA-tool-ready license-policy runbook.
+- **P11-04 NpmTransformer** — SNMP extension (v1/v2c/v3, credential-vault refs) + NetFlow v5/v9 / IPFIX / sFlow collectors.
+- **P11-05 AiMonitoringTransformer** — `builtin:ai.observability.model-registry` + bizevent ingest rule renaming NR attributes to DT AIO conventions (`ai.tokens.prompt`, `ai.cost.usd`, …).
+- **P11-06 `preflightGen3()` + `preflightNewRelic()`** — cheap capability probes on both client classes; return boolean readiness map + `diagnostics` string[].
+
+Tests: 1155 → 1206 (+51). Typecheck clean.
+
+Deferred follow-ups: P11-07 uniform `createTransformer()` factory, P11-08 5 missing Legacy v1 ports, P11-09 `toMonacoYaml()` helper, P11-10 `getOtelEnvForDt()` helper.
+
 ### Added (Phase 09 — net-new translators)
 
 All 8 P09-NN work items landed. COVERAGE.md flipped for each.
