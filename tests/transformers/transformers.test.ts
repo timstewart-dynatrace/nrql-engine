@@ -14,6 +14,7 @@ import {
   DashboardTransformer,
   AlertTransformer,
   NotificationTransformer,
+  LegacyNotificationTransformer,
   SyntheticTransformer,
   SyntheticScriptConverter,
   SLOTransformer,
@@ -404,68 +405,210 @@ describe('AlertTransformer', () => {
 
 // ─── NotificationTransformer ────────────────────────────────────────────────
 
-describe('NotificationTransformer', () => {
+describe('NotificationTransformer (Gen3 Workflow tasks)', () => {
   let notifTransformer: NotificationTransformer;
 
   beforeEach(() => {
     notifTransformer = new NotificationTransformer();
   });
 
-  it('should transform email channel', () => {
-    const channel = {
+  it('should emit email workflow task', () => {
+    const result = notifTransformer.transform({
       name: 'Team Email',
       type: 'EMAIL',
       active: true,
       properties: [{ key: 'recipients', value: 'a@b.com,c@d.com' }],
-    };
-    const result = notifTransformer.transform(channel);
+    });
     expect(result.success).toBe(true);
-    expect(result.data!.integrationType).toBe('email');
-    expect((result.data!.config.recipients as string[])).toContain('a@b.com');
+    expect(result.data!.action).toBe('dynatrace.email:email-action');
+    expect(result.data!.name).toBe('team_email');
+    expect((result.data!.input.to as string[])).toContain('a@b.com');
+    expect((result.data!.input.to as string[])).toContain('c@d.com');
   });
 
-  it('should transform slack channel', () => {
-    const channel = {
+  it('should emit slack workflow task with channel and connection', () => {
+    const result = notifTransformer.transform({
       name: 'Slack Alert',
       type: 'SLACK',
       properties: [
         { key: 'url', value: 'https://hooks.slack.com/xxx' },
         { key: 'channel', value: '#alerts' },
       ],
-    };
-    const result = notifTransformer.transform(channel);
+    });
     expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.slack:slack-action');
+    expect(result.data!.input.channel).toBe('#alerts');
+    expect(result.data!.input.connection).toBe('https://hooks.slack.com/xxx');
+  });
+
+  it('should emit pagerduty workflow task', () => {
+    const result = notifTransformer.transform({
+      name: 'PD',
+      type: 'PAGERDUTY',
+      properties: [{ key: 'service_key', value: 'abc123' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.pagerduty:pagerduty-action');
+    expect(result.data!.input.integrationKey).toBe('abc123');
+  });
+
+  it('should emit webhook via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'Hook',
+      type: 'WEBHOOK',
+      properties: [{ key: 'base_url', value: 'https://example.com/hook' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect(result.data!.input.url).toBe('https://example.com/hook');
+    expect(result.data!.input.method).toBe('POST');
+  });
+
+  it('should emit opsgenie via http action with GenieKey header', () => {
+    const result = notifTransformer.transform({
+      name: 'OG',
+      type: 'OPSGENIE',
+      properties: [{ key: 'api_key', value: 'ogkey' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect((result.data!.input.headers as Record<string, string>).Authorization).toBe(
+      'GenieKey ogkey',
+    );
+  });
+
+  it('should emit xmatters via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'XM',
+      type: 'XMATTERS',
+      properties: [{ key: 'url', value: 'https://xm.example.com/inbound' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect(result.data!.input.url).toBe('https://xm.example.com/inbound');
+  });
+
+  it('should emit jira create-issue action', () => {
+    const result = notifTransformer.transform({
+      name: 'Jira',
+      type: 'JIRA',
+      properties: [
+        { key: 'project', value: 'OPS' },
+        { key: 'issue_type', value: 'Bug' },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.jira:create-issue-action');
+    expect(result.data!.input.projectKey).toBe('OPS');
+    expect(result.data!.input.issueType).toBe('Bug');
+  });
+
+  it('should emit servicenow incident action', () => {
+    const result = notifTransformer.transform({
+      name: 'SNOW',
+      type: 'SERVICENOW',
+      properties: [{ key: 'instance', value: 'acme.service-now.com' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.servicenow:incident-action');
+    expect(result.data!.input.instance).toBe('acme.service-now.com');
+  });
+
+  it('should emit teams via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'Teams',
+      type: 'TEAMS',
+      properties: [{ key: 'url', value: 'https://outlook.office.com/webhook/xxx' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect(result.data!.input.url).toBe('https://outlook.office.com/webhook/xxx');
+  });
+
+  it('should emit victorops via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'VO',
+      type: 'VICTOROPS',
+      properties: [{ key: 'url', value: 'https://alert.victorops.com/integrations/xxx' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+  });
+
+  it('should fail unsupported type', () => {
+    const result = notifTransformer.transform({
+      name: 'Unknown',
+      type: 'UNKNOWN_TYPE',
+      properties: [],
+    });
+    expect(result.success).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('should sanitize task name', () => {
+    const result = notifTransformer.transform({
+      name: 'Team Email!! 1',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'a@b.com' }],
+    });
+    expect(result.data!.name).toBe('team_email_1');
+  });
+});
+
+describe('LegacyNotificationTransformer (Gen2 classic problem notifications)', () => {
+  let legacy: LegacyNotificationTransformer;
+
+  beforeEach(() => {
+    legacy = new LegacyNotificationTransformer();
+  });
+
+  it('should emit legacy warning on every channel', () => {
+    const result = legacy.transform({
+      name: 'E',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'x@y.com' }],
+    });
+    expect(result.warnings[0]).toContain('Gen2');
+  });
+
+  it('should transform email channel (classic)', () => {
+    const result = legacy.transform({
+      name: 'Team Email',
+      type: 'EMAIL',
+      active: true,
+      properties: [{ key: 'recipients', value: 'a@b.com,c@d.com' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.integrationType).toBe('email');
+    expect((result.data!.config.recipients as string[])).toContain('a@b.com');
+    expect(result.data!.config.subject).toBe('[Dynatrace] {ProblemTitle}');
+  });
+
+  it('should transform slack channel (classic)', () => {
+    const result = legacy.transform({
+      name: 'Slack',
+      type: 'SLACK',
+      properties: [
+        { key: 'url', value: 'https://hooks.slack.com/xxx' },
+        { key: 'channel', value: '#alerts' },
+      ],
+    });
     expect(result.data!.integrationType).toBe('slack');
     expect(result.data!.config.channel).toBe('#alerts');
   });
 
-  it('should transform pagerduty channel', () => {
-    const channel = {
-      name: 'PD',
-      type: 'PAGERDUTY',
-      properties: [{ key: 'service_key', value: 'abc123' }],
-    };
-    const result = notifTransformer.transform(channel);
-    expect(result.success).toBe(true);
-    expect(result.data!.integrationType).toBe('pagerduty');
-  });
-
-  it('should transform webhook channel', () => {
-    const channel = {
+  it('should transform webhook channel (classic)', () => {
+    const result = legacy.transform({
       name: 'Hook',
       type: 'WEBHOOK',
       properties: [{ key: 'base_url', value: 'https://example.com/hook' }],
-    };
-    const result = notifTransformer.transform(channel);
-    expect(result.success).toBe(true);
-    expect(result.data!.integrationType).toBe('webhook');
+    });
+    expect(result.data!.config.payload).toBe('{ProblemDetailsJSON}');
   });
 
   it('should fail unsupported type', () => {
-    const channel = { name: 'Unknown', type: 'UNKNOWN_TYPE', properties: [] };
-    const result = notifTransformer.transform(channel);
+    const result = legacy.transform({ name: 'X', type: 'UNKNOWN', properties: [] });
     expect(result.success).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
   });
 });
 

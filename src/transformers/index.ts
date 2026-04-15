@@ -51,11 +51,15 @@ export type {
   AlertTransformData,
 } from './alert.transformer.js';
 
-// Notification transformer
-export { NotificationTransformer } from './notification.transformer.js';
+// Notification transformer (Gen3 default + Gen2 legacy opt-in)
+export {
+  NotificationTransformer,
+  LegacyNotificationTransformer,
+} from './notification.transformer.js';
 export type {
   NRNotificationChannelInput,
-  NotificationTransformData,
+  DTWorkflowTask,
+  LegacyNotificationTransformData,
 } from './notification.transformer.js';
 
 // Synthetic transformer
