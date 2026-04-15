@@ -600,6 +600,55 @@ describe('NotificationTransformer (Gen3 Workflow tasks)', () => {
     });
     expect(result.data!.name).toBe('team_email_1');
   });
+
+  it('should emit routing filter from Notification Policies v2 policyName', () => {
+    const result = notifTransformer.transform({
+      name: 'On-call',
+      type: 'PAGERDUTY',
+      properties: [{ key: 'service_key', value: 'k' }],
+      routing: { policyName: 'prod-critical' },
+    });
+    expect(result.data!.filter).toContain('prod-critical');
+    expect(result.data!.filter).toContain("event()['event.source']");
+  });
+
+  it('should emit routing filter combining entityTags and severity', () => {
+    const result = notifTransformer.transform({
+      name: 'On-call',
+      type: 'PAGERDUTY',
+      properties: [{ key: 'service_key', value: 'k' }],
+      routing: {
+        entityTags: { env: 'prod', team: 'payments' },
+        severityAtLeast: 'ERROR',
+      },
+    });
+    expect(result.data!.filter).toContain('affected_entity_tags.env');
+    expect(result.data!.filter).toContain('"prod"');
+    expect(result.data!.filter).toContain('affected_entity_tags.team');
+    expect(result.data!.filter).toContain('ERROR');
+    expect(result.data!.filter).toContain('AVAILABILITY');
+    expect(result.data!.filter).not.toContain('PERFORMANCE');
+    expect(result.data!.filter!.split(' and ').length).toBeGreaterThan(1);
+  });
+
+  it('should not add a filter when routing.severityAtLeast is ALL with no other criteria', () => {
+    const result = notifTransformer.transform({
+      name: 'Default',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'a@b.com' }],
+      routing: { severityAtLeast: 'ALL' },
+    });
+    expect(result.data!.filter).toBeUndefined();
+  });
+
+  it('should not add a filter when routing is absent', () => {
+    const result = notifTransformer.transform({
+      name: 'Default',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'a@b.com' }],
+    });
+    expect(result.data!.filter).toBeUndefined();
+  });
 });
 
 describe('LegacyNotificationTransformer (Gen2 classic problem notifications)', () => {

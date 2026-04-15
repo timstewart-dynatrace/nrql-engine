@@ -62,6 +62,7 @@ export {
 } from './notification.transformer.js';
 export type {
   NRNotificationChannelInput,
+  NRNotificationRouting,
   DTWorkflowTask,
   LegacyNotificationTransformData,
 } from './notification.transformer.js';
@@ -290,9 +291,13 @@ export type {
   DTCoreWebVitalsNote,
 } from './browser-rum.transformer.js';
 
-// Drop rule transformer
+// Drop rule transformer (v1 + v2)
 export { DropRuleTransformer } from './drop-rule.transformer.js';
 export type {
   NRDropRuleInput,
+  NRDropRuleV2Input,
+  NRDropPipeline,
+  NRDropV2Action,
   DTIngestRule,
+  DTOpenPipelineDropProcessor,
 } from './drop-rule.transformer.js';

@@ -28,6 +28,22 @@ export interface NRNotificationChannelInput {
   readonly type?: string;
   readonly active?: boolean;
   readonly properties?: Array<{ key: string; value: string }>;
+  /**
+   * NR Notification Policies v2 per-policy routing. When supplied, the
+   * emitted DTWorkflowTask gains a `filter` expression so the task only
+   * fires when the Davis problem matches. The filter is a DPL condition
+   * evaluated by the Workflow engine against the triggering event.
+   */
+  readonly routing?: NRNotificationRouting;
+}
+
+export interface NRNotificationRouting {
+  /** Only fire this destination for problems raised by a specific policy. */
+  readonly policyName?: string;
+  /** Only fire when the affected entity carries ALL of these tags. */
+  readonly entityTags?: Record<string, string>;
+  /** Minimum problem severity, ordered ALL < CUSTOM < PERFORMANCE < ERROR < AVAILABILITY. */
+  readonly severityAtLeast?: 'ALL' | 'CUSTOM' | 'PERFORMANCE' | 'ERROR' | 'AVAILABILITY';
 }
 
 // ---------------------------------------------------------------------------
@@ -44,6 +60,12 @@ export interface DTWorkflowTask {
   readonly description: string;
   readonly active: boolean;
   readonly input: Record<string, unknown>;
+  /**
+   * Optional per-task filter (DPL expression) evaluated against the
+   * triggering Davis problem event. Present when the NR source carried
+   * Notification Policy v2 routing config.
+   */
+  readonly filter?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -76,6 +98,50 @@ function sanitizeTaskName(name: string): string {
   );
 }
 
+const SEVERITY_RANK: Record<
+  NonNullable<NRNotificationRouting['severityAtLeast']>,
+  number
+> = {
+  ALL: 0,
+  CUSTOM: 1,
+  PERFORMANCE: 2,
+  ERROR: 3,
+  AVAILABILITY: 4,
+};
+
+function routingToFilter(routing: NRNotificationRouting | undefined): string | undefined {
+  if (!routing) return undefined;
+  const parts: string[] = [];
+
+  if (routing.policyName) {
+    parts.push(
+      `matchesValue(event()['event.source'], "${routing.policyName}")`,
+    );
+  }
+  for (const [k, v] of Object.entries(routing.entityTags ?? {})) {
+    parts.push(`event()['affected_entity_tags.${k}'] == "${v}"`);
+  }
+  if (routing.severityAtLeast && routing.severityAtLeast !== 'ALL') {
+    const rank = SEVERITY_RANK[routing.severityAtLeast];
+    const severities = (
+      Object.entries(SEVERITY_RANK) as Array<
+        [NonNullable<NRNotificationRouting['severityAtLeast']>, number]
+      >
+    )
+      .filter(([, r]) => r >= rank)
+      .map(([name]) => `"${name}"`);
+    parts.push(`in(event()['event.category'], {${severities.join(', ')}})`);
+  }
+
+  if (parts.length === 0) return undefined;
+  return parts.join(' and ');
+}
+
+function withFilter<T extends DTWorkflowTask>(task: T, filter: string | undefined): T {
+  if (!filter) return task;
+  return { ...task, filter };
+}
+
 // ---------------------------------------------------------------------------
 // NotificationTransformer (Gen3 default)
 // ---------------------------------------------------------------------------
@@ -95,6 +161,15 @@ const SUPPORTED_CHANNELS: ReadonlySet<string> = new Set([
 
 export class NotificationTransformer {
   transform(nrChannel: NRNotificationChannelInput): TransformResult<DTWorkflowTask> {
+    const inner = this.buildTask(nrChannel);
+    if (!inner.success || !inner.data) return inner;
+    const filter = routingToFilter(nrChannel.routing);
+    return { ...inner, data: withFilter(inner.data, filter) };
+  }
+
+  private buildTask(
+    nrChannel: NRNotificationChannelInput,
+  ): TransformResult<DTWorkflowTask> {
     const type = (nrChannel.type ?? '').toUpperCase();
     const name = nrChannel.name ?? 'Unknown Channel';
     const active = nrChannel.active ?? true;
