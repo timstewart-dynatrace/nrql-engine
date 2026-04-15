@@ -2,13 +2,13 @@
 
 > **Purpose:** Operational status dashboard — every New Relic surface, mapped to its Gen3 Dynatrace equivalent and the engine module responsible. Tracks what is convertible today, what is partial, what is a gap, and what is not convertible.
 >
-> **Rule:** Gen3 output only. No Alerting Profiles, Management Zones, Auto-Tag Rules (classic), classic notification channels, or classic dashboards. See `.claude/phases/` for the migration plan to reach zero 🔴 rows.
+> **Rule:** Gen3 default output. Gen2 shapes are available as opt-in via `Legacy*` classes / `createTransformer(kind, { legacy: true })` and always emit a warning. See `.claude/phases/` for the 12-phase delivery history.
 >
 > **Companion docs:**
 > - `MIGRATABILITY.md` — full reasoning layer ("why" each surface is in its current band, A/B/C/D classification)
 > - `OUT-OF-SCOPE.md` — exclusion list with ownership pointers
 >
-> **Audit status:** Last full re-evaluation 2026-04-15 (Phase 07). `*` next to a ✅ status = the schema is emitted but has not been validated against live DT schemas / lacks deep per-field coverage; Phase 08 schedules depth passes.
+> **Audit status (Phase 13 revalidation, 2026-04-15):** zero 🔴 rows. All Phase 08 depth passes complete, so `✅*` (schema-shipped-but-shallow) markers have been retired in favor of plain `✅`. Any `*` that remains in row text below is historical and should be read as `✅`.
 
 ## Status Legend
 

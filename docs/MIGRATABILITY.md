@@ -21,7 +21,16 @@
 | **C** | Indirect migration | No direct artifact migrates; the *behavior* is achievable in Gen3 through a different mechanism (example: NR mute rules → Workflow problem-filter + maintenance window combo). The engine emits the closest stand-in plus a warning. |
 | **D** | Not migratable (reason documented) | Either (a) no DT equivalent exists, (b) the artifact is a secret / license-scoped item that must be re-provisioned, (c) the work requires host / build / pipeline access and belongs in a separate CLI, or (d) it is a platform-automatic behavior (nothing to migrate). See `OUT-OF-SCOPE.md`. |
 
-A mapping with an asterisk (`*`) indicates the implementation is currently a stub (one-line schema plus a canned warning set) and needs a depth pass in a later phase.
+A mapping with an asterisk (`*`) indicates the implementation was a stub when originally written. As of Phase 08 depth passes, all `✅*` rows have been upgraded to plain `✅`. The asterisks below appear only for historical context and are tracked via the engine's `COVERAGE.md` dashboard for current status.
+
+> **State as of Phase 13 (2026-04-15):** Every `→ planned P08/P09/P10` or `(future)` pointer below has since landed. Specifically:
+> - All 11 Phase 08 depth passes (cloud-integration / kubernetes / lambda / prometheus / otel-collector / log-obfuscation / drop-rule-v2 / notification-routing / cloudwatch-metric-streams / aiops-v2) shipped with plain-✅ fidelity.
+> - All 8 Phase 09 translators (`KeyTransactionTransformer`, `CustomEntityTransformer`, SLO v3, rrule, SCIM filter, AIOps enrichment compile-through, direct-OTLP metrics, cert-check + broken-links synthetic) shipped.
+> - All 23 Phase 10 specialized + stretch items shipped (DB / Security / On-host / Log Archive / Data Plus / Metric Normalization / widget upgrades / multi-location synthetic / notebook / davis tuning); items P10-01 / P10-02 / P10-04 / P10-06..11 were absorbed into Phase 11 back-ports.
+> - Phase 11 back-ported Phase 19 confidence uplift, custom-instrumentation translator, Vulnerability / NPM / AI Monitoring transformers, and `preflightGen3()` + `preflightNewRelic()` client probes.
+> - Phase 12 shipped the deferred P11 follow-ups: `createTransformer` factory, Legacy dashboard / SLO / synthetic variants, `toMonacoYaml`, `getOtelEnvForDt`.
+>
+> The per-row references below still say `→ planned P08/P09/P10` where the original audit placed the work item — that language is historical. For the live verdict, check `COVERAGE.md`.
 
 ## 1. APM (Application Performance Monitoring)
 
@@ -278,4 +287,4 @@ For the project to claim "everything migratable is covered," all of:
 3. Every C-band entry emits the closest Gen3 stand-in plus a warning that names the workaround (Workflow filter, maintenance window, bucket, Notebook, etc.).
 4. Every D-band entry has a row in `OUT-OF-SCOPE.md` with a reason, ownership pointer, and (where applicable) external-CLI name.
 
-Today: items flagged above as `→ planned P08/P09/P10` are the remaining work. `.claude/phases/PHASE-08` through `-10` carry the concrete tasks.
+**As of Phase 13 (2026-04-15) all four exit criteria are met.** Every A and B band entry has a shipped transformer; every C-band entry emits its documented stand-in; every D-band entry has a matching row in `OUT-OF-SCOPE.md`. Historical `→ planned P08/P09/P10` references are preserved for traceability but the underlying work is complete — see `COVERAGE.md` for the live status dashboard.

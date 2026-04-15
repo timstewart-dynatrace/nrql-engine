@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+Accumulating toward **v2.0.0**. The branch now carries every Phase 01–12 deliverable: 46 Gen3 transformers, 7 Legacy opt-in classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers. Test count 838 → 1295 (+457). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+
+Entries below are preserved in reverse chronological order (newest phase first) for reviewers. On release they collapse under a single `## [2.0.0] - YYYY-MM-DD` heading.
+
 ### Added (Phase 12 — Phase 11 back-port follow-ups)
 
 All four deferred P11 items shipped.

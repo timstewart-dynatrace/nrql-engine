@@ -3,6 +3,8 @@
 > **Purpose:** Document NR capabilities that are intentionally **not** converted by this library and explain why. Consumers (CLIs, Dynatrace apps) or adjacent projects (e.g., `Dynatrace-NewRelic` Python CLI) may address them.
 >
 > This file complements `COVERAGE.md`. A ⚫ entry there links back to a reason here.
+>
+> **Last revalidation:** Phase 13 (2026-04-15). Phase 11 re-examined every candidate in this file during the Dynatrace-NewRelic back-port survey and reaffirmed the exclusions documented below.
 
 ## Categories
 

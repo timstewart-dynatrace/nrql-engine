@@ -6,8 +6,9 @@
 
 ## Running Tests
 ```bash
-npx vitest run              # All tests
+npx vitest run              # All 1295 tests across 62 files
 npx vitest run compiler     # Compiler tests only
+npx vitest run tag          # Tests for a specific transformer
 npx vitest --watch          # Watch mode
 npx vitest --coverage       # Coverage report
 ```
@@ -23,28 +24,25 @@ describe('NRQLCompiler', () => {
 });
 ```
 
-## Porting Python Tests
+## Corpus Regression Harness
 
-The Python test file at `/Users/Shared/GitHub/Dynatrace-NewRelic/tests/unit/test_compiler.py` has 292 tests across 25+ test classes. Port ALL of them.
+`tests/compiler/real-world-corpus.test.ts` holds a curated list of real-world NRQL patterns spanning APM / Browser / Mobile / Infra / Logs / Synthetics / Spans / Operators. Each entry asserts compile confidence ≥ MEDIUM plus expected DQL substrings. Add new problematic patterns here when the compiler is extended.
 
-Python test pattern:
-```python
-def test_should_emit_timeseries_for_system_sample(self, compiler):
-    result = compiler.compile("SELECT average(cpuPercent) FROM SystemSample TIMESERIES")
-    assert result.success
-    assert "timeseries" in result.dql
-```
+## Adding a New Transformer
 
-TypeScript equivalent:
-```typescript
-it('should emit timeseries for SystemSample', () => {
-  const result = compiler.compile('SELECT average(cpuPercent) FROM SystemSample TIMESERIES');
-  expect(result.success).toBe(true);
-  expect(result.dql).toContain('timeseries');
-});
-```
+Every new transformer (e.g. `src/transformers/foo.transformer.ts`) gets a matching `tests/transformers/foo.transformer.test.ts`. Minimum cases:
+
+- happy-path success for the most common input
+- failure case (invalid input)
+- any warning-emitting branch
+- defaults for unset optional fields
+- `transformAll` batch path if defined
+
+When adding a transformer that has a Legacy sibling, add it to `createTransformer`'s switch (in `factory.ts`) and include it in `LEGACY_SUPPORTED_KINDS`.
 
 ## Coverage Target
-- Python parity achieved: 838 tests (894 minus 56 N/A CLI/exporter tests)
-- Every module must have tests before moving to the next
-- Phase gate: tests + docs required before each commit
+
+- All 1295 tests must pass before commit
+- `npm run typecheck` must be clean (no `any`, strict mode)
+- New modules ship with tests in the same commit
+- Phase gate: tests + docs + COVERAGE.md updates required before each phase commit
