@@ -37,3 +37,10 @@ export type {
   ConversionReportSummary,
   ConversionReportOptions,
 } from './conversion-report.js';
+
+export { CanaryPlan, autoApproveGate, autoRejectGate } from './canary.js';
+export type {
+  CanaryPlanOptions,
+  CanarySplit,
+  ApprovalGate,
+} from './canary.js';

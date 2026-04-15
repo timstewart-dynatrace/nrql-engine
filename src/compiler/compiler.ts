@@ -7,6 +7,7 @@
 
 import type { Query } from './ast-nodes.js';
 import { DEFAULT_METRIC_MAP } from './default-metric-map.js';
+import { EXTENDED_METRIC_MAP } from './extended-metric-map.js';
 import { DQLEmitter, type MetricResolver, type MetricTransform } from './emitter.js';
 import { LexError, NRQLLexer } from './lexer.js';
 import { NRQLParser, ParseError } from './parser.js';
@@ -46,8 +47,15 @@ export class NRQLCompiler {
     metricResolver?: MetricResolver;
   }) {
     this.fieldMap = options?.fieldMap ?? {};
-    // Default infra metric map is applied first; caller overrides win.
-    this.metricMap = { ...DEFAULT_METRIC_MAP, ...(options?.metricMap ?? {}) };
+    // Map merge order: EXTENDED < DEFAULT < caller overrides. EXTENDED is the
+    // broader 232-entry back-port from the Python CLI reference table;
+    // DEFAULT contains the explicitly-curated infra metrics we ship; caller
+    // overrides always win.
+    this.metricMap = {
+      ...EXTENDED_METRIC_MAP,
+      ...DEFAULT_METRIC_MAP,
+      ...(options?.metricMap ?? {}),
+    };
     this.metricTransforms = options?.metricTransforms ?? {};
     this.metricResolver = options?.metricResolver;
   }

@@ -5,6 +5,7 @@ export {
   type TranslationNotes,
 } from './compiler.js';
 export { DEFAULT_METRIC_MAP } from './default-metric-map.js';
+export { EXTENDED_METRIC_MAP } from './extended-metric-map.js';
 export { NRQLLexer, LexError } from './lexer.js';
 export { NRQLParser, ParseError } from './parser.js';
 export { DQLEmitter } from './emitter.js';

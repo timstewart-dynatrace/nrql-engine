@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Accumulating toward **v2.0.0**. The branch now carries every Phase 01–15 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, plus the Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports). Test count 838 → 1385 (+547). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+Accumulating toward **v2.0.0**. The branch now carries every Phase 01–16 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports), and Phase 16 parity completion (canary rollout, NRDB archive helper, 232-entry extended metric map, OAuth2 platform-token provider + split DT client stack). Test count 838 → 1434 (+596). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+
+### Added (Phase 16 — Python parity completion + OAuth2 / split DT client)
+
+Closes the remaining Python parity backlog. P15-06 ships the OAuth2 flow and split-client refactor intentionally — v2.0.0 is authorised to be all-encompassing.
+
+- **P15-04 `CanaryPlan`** — two-wave rollout helper with `split(bucket)` → `{ canary, rest }` partition (configurable `canaryPercent` / `minCanarySize` / `maxCanarySize`) and `rollout(bucket, runWave, approvalGate)` orchestration. Built-in `autoApproveGate` + `autoRejectGate` conveniences for tests / unattended runs.
+- **P15-08 `FailedEntities.filterTransformedData`** — confirmed already shipped and tested in `src/migration/retry.ts`; no new code needed.
+- **P15-11 `runNrdbArchive` pure-data helper** — `src/tools/nrdb-archive.ts`. Cursor-resumable batch driver where the caller injects `runQuery` / `persistBatch` / `persistCursor` / `readCursor` so the library stays I/O-free. Supports `maxBatches`, `maxRecords`, `AbortSignal`, `onBatch` progress callback. Returns manifest + final status (`EXHAUSTED` / `MAX_BATCHES` / `MAX_RECORDS` / `ABORTED`).
+- **P15-10 Extended NR→DT metric map** — `src/compiler/extended-metric-map.ts`. 232-entry `EXTENDED_METRIC_MAP` back-ported verbatim from the Python CLI's `nrql_mapping_rules.py::METRIC_MAP`. Spans APM service / host / K8s / AWS / Azure / GCP / mobile / browser / synthetic / database / queue / container surfaces. Merged into `NRQLCompiler.metricMap` at construction time (order: EXTENDED < DEFAULT < caller overrides).
+- **P15-06 OAuth2 + split DT client stack** (BREAKING — authorized for v2.0.0):
+  - `HttpTransport` (`src/clients/http-transport.ts`) — shared transport with auth-header injection (via pluggable `AuthHeaderProvider`), rate limiting, automatic 429/5xx retry via `withRetry`, JSON envelope parsing, error-message extraction.
+  - `OAuth2PlatformTokenProvider` (`src/clients/oauth2-platform-token.ts`) — client-credentials flow with 60 s refresh margin, in-flight-promise mutex for concurrent callers, `invalidate()` for forced refresh. Exposed as an `AuthHeaderProvider` via `oauthAuthProvider(provider)`. `apiTokenAuthProvider(token)` convenience for the classic DT header.
+  - `SettingsV2Client` / `DocumentClient` / `AutomationClient` (`src/clients/split-clients.ts`) — focused wrappers with `preferOauth` routing: Settings v2 defaults to Api-Token; Document + Automation default to OAuth2. Document client uses `pageKey` (not `nextPageKey`) and rewrites `.live.` → `.apps.` for platform URLs.
+
+Tests: 1385 → 1434 (+49 across 7 new test files). Typecheck clean.
 
 ### Added (Phase 15 — safety + observability parity with Python CLI)
 

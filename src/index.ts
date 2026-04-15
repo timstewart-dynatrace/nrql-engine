@@ -70,6 +70,27 @@ export {
   type ConversionReportSummary,
   type ConversionReportOptions,
 } from './migration/index.js';
+export {
+  CanaryPlan,
+  autoApproveGate,
+  autoRejectGate,
+  type CanaryPlanOptions,
+  type CanarySplit,
+  type ApprovalGate,
+} from './migration/index.js';
+
+// Tools (Phase 16)
+export {
+  runNrdbArchive,
+  type NrdbBatch,
+  type NrdbArchiveOptions,
+  type NrdbArchiveManifestEntry,
+  type NrdbArchiveResult,
+  type RunQueryFn,
+  type PersistBatchFn,
+  type PersistCursorFn,
+  type ReadCursorFn,
+} from './tools/nrdb-archive.js';
 
 // Utils (P15)
 export {
