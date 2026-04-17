@@ -1,51 +1,122 @@
 /**
- * Tests for TagTransformer.
- *
- * Ported from Python: tests/unit/test_tag_transformer.py
+ * Tests for TagTransformer (Gen3 default) and LegacyTagTransformer (Gen2 opt-in).
  */
 
 import { describe, it, expect, beforeEach } from 'vitest';
-import { TagTransformer } from '../../src/transformers/index.js';
-
-let tagTransformer: TagTransformer;
-
-beforeEach(() => {
-  tagTransformer = new TagTransformer();
-});
+import { TagTransformer, LegacyTagTransformer } from '../../src/transformers/index.js';
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Result defaults
+// Gen3 default — OpenPipeline enrichment
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('TagTransformResult', () => {
-  it('should return result with empty data array for no tags', () => {
-    const entity = {
-      name: 'bare-service',
-      type: 'APPLICATION',
-      tags: [],
-    };
-    const result = tagTransformer.transform(entity);
+describe('TagTransformer (Gen3 OpenPipeline enrichment)', () => {
+  let transformer: TagTransformer;
+
+  beforeEach(() => {
+    transformer = new TagTransformer();
+  });
+
+  it('should return empty data for no tags', () => {
+    const result = transformer.transform({ name: 'bare', type: 'APPLICATION', tags: [] });
     expect(result.success).toBe(true);
-    expect(result.data).toBeDefined();
-    expect(result.data).toHaveLength(0);
+    expect(result.data).toEqual([]);
     expect(result.warnings).toEqual([]);
+  });
+
+  it('should emit OpenPipeline enrichment rule for a tag', () => {
+    const result = transformer.transform({
+      name: 'my-service',
+      type: 'APPLICATION',
+      tags: [{ key: 'environment', values: ['production'] }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toHaveLength(1);
+    const rule = result.data![0]!;
+    expect(rule.schemaId).toBe('builtin:openpipeline.logs.pipelines');
+    expect(rule.displayName).toContain('[Migrated]');
+    expect(rule.displayName).toContain('environment=production');
+    expect(rule.pipelines).toEqual(['spans', 'logs']);
+    expect(rule.matcher).toBe('matchesValue(service.name, "my-service")');
+    expect(rule.fieldsAdd).toEqual([{ field: 'environment', value: 'production' }]);
+  });
+
+  it('should route HOST entities to logs + metrics pipelines with host.name matcher', () => {
+    const result = transformer.transform({
+      name: 'web-host-01',
+      type: 'HOST',
+      tags: [{ key: 'team', values: ['platform'] }],
+    });
+    const rule = result.data![0]!;
+    expect(rule.pipelines).toEqual(['logs', 'metrics']);
+    expect(rule.matcher).toBe('matchesValue(host.name, "web-host-01")');
+  });
+
+  it('should emit one rule per tag value', () => {
+    const result = transformer.transform({
+      name: 'api-gateway',
+      type: 'APPLICATION',
+      tags: [
+        { key: 'env', values: ['staging', 'production'] },
+        { key: 'team', values: ['backend'] },
+      ],
+    });
+    expect(result.data).toHaveLength(3);
+  });
+
+  it('should warn and skip empty tag keys', () => {
+    const result = transformer.transform({
+      name: 'svc',
+      type: 'APPLICATION',
+      tags: [{ key: '', values: ['x'] }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+    expect(result.warnings[0]).toContain('Empty tag key');
+  });
+
+  it('should succeed with missing tags key', () => {
+    const result = transformer.transform({ name: 'no-tags', type: 'HOST' });
+    expect(result.success).toBe(true);
+    expect(result.data).toEqual([]);
+  });
+
+  it('should transform multiple entities via transformAll', () => {
+    const results = transformer.transformAll([
+      { name: 'svc-1', type: 'APPLICATION', tags: [{ key: 'env', values: ['prod'] }] },
+      { name: 'host-1', type: 'HOST', tags: [{ key: 'region', values: ['us-east-1'] }] },
+      { name: 'svc-2', type: 'APPLICATION', tags: [] },
+    ]);
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.success)).toBe(true);
+    expect(results[0]!.data).toHaveLength(1);
+    expect(results[1]!.data).toHaveLength(1);
+    expect(results[2]!.data).toHaveLength(0);
   });
 });
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Single Tag
+// Gen2 opt-in — classic Auto-Tag Rule
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('TagTransform single tag', () => {
-  it('should create auto tag rule', () => {
-    const entity = {
+describe('LegacyTagTransformer (Gen2 Auto-Tag Rule)', () => {
+  let transformer: LegacyTagTransformer;
+
+  beforeEach(() => {
+    transformer = new LegacyTagTransformer();
+  });
+
+  it('should emit a legacy warning on every call', () => {
+    const result = transformer.transform({ name: 'svc', type: 'APPLICATION', tags: [] });
+    expect(result.warnings[0]).toContain('Gen2');
+    expect(result.warnings[0]).toContain('legacy');
+  });
+
+  it('should create auto-tag rule with ENTITY_NAME CONTAINS', () => {
+    const result = transformer.transform({
       name: 'my-service',
       type: 'APPLICATION',
-      tags: [
-        { key: 'environment', values: ['production'] },
-      ],
-    };
-    const result = tagTransformer.transform(entity);
+      tags: [{ key: 'environment', values: ['production'] }],
+    });
     expect(result.success).toBe(true);
     expect(result.data).toHaveLength(1);
     const rule = result.data![0]!;
@@ -56,96 +127,33 @@ describe('TagTransform single tag', () => {
   });
 
   it('should map host entity type', () => {
-    const entity = {
+    const result = transformer.transform({
       name: 'web-host-01',
       type: 'HOST',
-      tags: [
-        { key: 'team', values: ['platform'] },
-      ],
-    };
-    const result = tagTransformer.transform(entity);
-    const rule = result.data![0]!;
-    expect(rule.rules[0]!.type).toBe('HOST');
+      tags: [{ key: 'team', values: ['platform'] }],
+    });
+    expect(result.data![0]!.rules[0]!.type).toBe('HOST');
   });
-});
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Multiple Tags
-// ═════════════════════════════════════════════════════════════════════════════
+  it('should include entity name in conditions', () => {
+    const result = transformer.transform({
+      name: 'checkout-service',
+      type: 'APM_APPLICATION',
+      tags: [{ key: 'tier', values: ['frontend'] }],
+    });
+    const condition = result.data![0]!.rules[0]!.conditions[0]!;
+    expect(condition.comparisonInfo.value).toBe('checkout-service');
+  });
 
-describe('TagTransform multiple tags', () => {
-  it('should create rule per tag value', () => {
-    const entity = {
+  it('should emit one rule per tag value', () => {
+    const result = transformer.transform({
       name: 'api-gateway',
       type: 'APPLICATION',
       tags: [
         { key: 'env', values: ['staging', 'production'] },
         { key: 'team', values: ['backend'] },
       ],
-    };
-    const result = tagTransformer.transform(entity);
-    expect(result.success).toBe(true);
-    expect(result.data).toHaveLength(3); // 2 env values + 1 team value
-  });
-
-  it('should include entity name in conditions', () => {
-    const entity = {
-      name: 'checkout-service',
-      type: 'APM_APPLICATION',
-      tags: [
-        { key: 'tier', values: ['frontend'] },
-      ],
-    };
-    const result = tagTransformer.transform(entity);
-    const rule = result.data![0]!;
-    const condition = rule.rules[0]!.conditions[0]!;
-    expect(condition.comparisonInfo.value).toBe('checkout-service');
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Empty Tags
-// ═════════════════════════════════════════════════════════════════════════════
-
-describe('TagTransform empty tags', () => {
-  it('should succeed with no rules', () => {
-    const entity = {
-      name: 'bare-service',
-      type: 'APPLICATION',
-      tags: [],
-    };
-    const result = tagTransformer.transform(entity);
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-
-  it('should succeed with missing tags key', () => {
-    const entity = {
-      name: 'no-tags-entity',
-      type: 'HOST',
-    };
-    const result = tagTransformer.transform(entity);
-    expect(result.success).toBe(true);
-    expect(result.data).toEqual([]);
-  });
-});
-
-// ═════════════════════════════════════════════════════════════════════════════
-// Transform All
-// ═════════════════════════════════════════════════════════════════════════════
-
-describe('TagTransformAll', () => {
-  it('should transform multiple entities', () => {
-    const entities = [
-      { name: 'svc-1', type: 'APPLICATION', tags: [{ key: 'env', values: ['prod'] }] },
-      { name: 'host-1', type: 'HOST', tags: [{ key: 'region', values: ['us-east-1'] }] },
-      { name: 'svc-2', type: 'APPLICATION', tags: [] },
-    ];
-    const results = tagTransformer.transformAll(entities);
-    expect(results).toHaveLength(3);
-    expect(results.every((r) => r.success)).toBe(true);
-    expect(results[0]!.data).toHaveLength(1);
-    expect(results[1]!.data).toHaveLength(1);
-    expect(results[2]!.data).toHaveLength(0);
+    });
+    expect(result.data).toHaveLength(3);
   });
 });

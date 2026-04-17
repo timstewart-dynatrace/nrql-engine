@@ -865,6 +865,63 @@ export class NewRelicClient {
   }
 
   // =========================================================================
+  // Preflight readiness probe
+  // =========================================================================
+
+  /**
+   * Probe that the NR API key + account are usable before a migration
+   * starts. Uses the cheap `actor { user { email }}` NerdGraph query
+   * plus an account-scoped entity count so the operator gets a sense
+   * of migration size before kick-off.
+   */
+  async preflightNewRelic(): Promise<{
+    readonly apiKeyValid: boolean;
+    readonly accountReachable: boolean;
+    readonly userEmail: string | undefined;
+    readonly entityCount: number | undefined;
+    readonly diagnostics: string[];
+  }> {
+    const diagnostics: string[] = [];
+
+    const userProbe = await this.executeQuery('{ actor { user { email } } }');
+    const apiKeyValid = userProbe.isSuccess;
+    let userEmail: string | undefined;
+    if (userProbe.isSuccess) {
+      const actor = (userProbe.data as { actor?: { user?: { email?: string } } })
+        ?.actor;
+      userEmail = actor?.user?.email;
+    } else {
+      diagnostics.push(
+        `api key: ${userProbe.errors?.map((e) => e['message']).join(', ') ?? 'unknown error'}`,
+      );
+    }
+
+    const entityProbe = await this.executeQuery(
+      `{ actor { account(id: ${this.accountId}) { id name } entitySearch(query: "accountId = ${this.accountId}") { count } } }`,
+    );
+    const accountReachable = entityProbe.isSuccess;
+    let entityCount: number | undefined;
+    if (entityProbe.isSuccess) {
+      const entitySearch = (
+        entityProbe.data as { actor?: { entitySearch?: { count?: number } } }
+      )?.actor?.entitySearch;
+      entityCount = entitySearch?.count;
+    } else {
+      diagnostics.push(
+        `account ${this.accountId}: ${entityProbe.errors?.map((e) => e['message']).join(', ') ?? 'unknown error'}`,
+      );
+    }
+
+    return {
+      apiKeyValid,
+      accountReachable,
+      userEmail,
+      entityCount,
+      diagnostics,
+    };
+  }
+
+  // =========================================================================
   // Full Export Method
   // =========================================================================
 

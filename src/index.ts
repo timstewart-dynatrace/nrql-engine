@@ -55,3 +55,64 @@ export {
 } from './migration/index.js';
 export { FailedEntities } from './migration/index.js';
 export { DiffReport, type DiffEntry } from './migration/index.js';
+export {
+  runAudit,
+  driftByKind,
+  type AuditEntity,
+  type AuditInput,
+  type AuditReport,
+  type DriftKind,
+  type DriftRecord,
+} from './migration/index.js';
+export {
+  ConversionReport,
+  type ConversionQueryRecord,
+  type ConversionReportSummary,
+  type ConversionReportOptions,
+} from './migration/index.js';
+export {
+  CanaryPlan,
+  autoApproveGate,
+  autoRejectGate,
+  type CanaryPlanOptions,
+  type CanarySplit,
+  type ApprovalGate,
+} from './migration/index.js';
+
+// Tools (Phase 16)
+export {
+  runNrdbArchive,
+  type NrdbBatch,
+  type NrdbArchiveOptions,
+  type NrdbArchiveManifestEntry,
+  type NrdbArchiveResult,
+  type RunQueryFn,
+  type PersistBatchFn,
+  type PersistCursorFn,
+  type ReadCursorFn,
+} from './tools/nrdb-archive.js';
+
+// Utils (P15)
+export {
+  WarningCode,
+  ErrorCode,
+  WARNING_LABELS,
+  emitted,
+  warningsByCode,
+  type CodedWarning,
+  type CodedError,
+} from './utils/warning-codes.js';
+export {
+  PROVENANCE_MARKER,
+  PROVENANCE_NAME_PREFIXES,
+  PROVENANCE_PREFIX_REGEX,
+  withProvenance,
+  stampDescription,
+  looksMigrated,
+} from './utils/provenance.js';
+export {
+  withRetry,
+  RetryExhaustedError,
+  type RetryPolicy,
+  type RetryableResponse,
+} from './utils/http-retry.js';

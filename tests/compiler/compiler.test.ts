@@ -351,7 +351,10 @@ describe('NRQLCompiler', () => {
         "SELECT average(`k8s.container.cpuUsedCores`) FROM Metric WHERE appName = 'api'"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('avg(k8s.container.cpuUsedCores)');
+      // Phase 16 extended-metric-map now resolves the K8s metric to its
+      // DT Grail equivalent. The backtick parse path is still exercised —
+      // only the post-resolve name differs.
+      expect(result.dql).toContain('avg(dt.kubernetes.container.cpu_usage)');
     });
 
     it('should handle string with escaped quotes', () => {

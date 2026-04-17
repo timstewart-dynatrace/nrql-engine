@@ -13,11 +13,14 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import {
   DashboardTransformer,
   AlertTransformer,
+  LegacyAlertTransformer,
   NotificationTransformer,
+  LegacyNotificationTransformer,
   SyntheticTransformer,
   SyntheticScriptConverter,
   SLOTransformer,
   WorkloadTransformer,
+  LegacyWorkloadTransformer,
 } from '../../src/transformers/index.js';
 
 // ═════════════════════════════════════════════════════════════════════════════
@@ -246,101 +249,160 @@ describe('DashboardTransformer', () => {
 // AlertTransformer
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('AlertTransformer', () => {
+describe('AlertTransformer (Gen3 Workflow + Metric Events)', () => {
   let alertTransformer: AlertTransformer;
 
   beforeEach(() => {
     alertTransformer = new AlertTransformer();
   });
 
-  describe('AlertTransformResult', () => {
-    it('should default lists', () => {
-      const policy = { name: 'Test Policy', conditions: [] };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.metricEvents).toEqual([]);
-      expect(result.warnings).toBeDefined();
-      expect(result.errors).toBeDefined();
+  it('should emit Gen3 Workflow even for empty policy', () => {
+    const result = alertTransformer.transform({ name: 'Test Policy', conditions: [] });
+    expect(result.success).toBe(true);
+    expect(result.data!.workflow.title).toContain('[Migrated]');
+    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTagsMatch).toBe('all');
+    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTags).toEqual({
+      'nr-migrated': 'test-policy',
     });
+    expect(result.data!.metricEvents).toEqual([]);
+    expect(result.data!.workflow.tasks).toEqual([]);
   });
 
-  describe('policy transform', () => {
-    it('should transform empty policy', () => {
-      const policy = { name: 'Test Policy', id: '123', conditions: [] };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.alertingProfile).toBeDefined();
-      expect((result.data!.alertingProfile as Record<string, unknown>).name).toContain('[Migrated]');
-      expect(result.data!.metricEvents).toEqual([]);
+  it('should emit one Gen3 Metric Event per NRQL condition, tagged to match workflow trigger', () => {
+    const result = alertTransformer.transform({
+      name: 'Test Policy',
+      id: '123',
+      conditions: [
+        {
+          name: 'High Error Rate',
+          conditionType: 'NRQL',
+          nrql: { query: 'SELECT count(*) FROM TransactionError' },
+          signal: { aggregationWindow: 60 },
+          terms: [
+            { priority: 'critical', operator: 'ABOVE', threshold: 10, thresholdDuration: 300 },
+          ],
+          enabled: true,
+        },
+      ],
     });
-
-    it('should transform with nrql condition', () => {
-      const policy = {
-        name: 'Test Policy',
-        id: '123',
-        conditions: [
-          {
-            name: 'High Error Rate',
-            conditionType: 'NRQL',
-            nrql: { query: 'SELECT count(*) FROM TransactionError' },
-            signal: { aggregationWindow: 60 },
-            terms: [
-              {
-                priority: 'critical',
-                operator: 'ABOVE',
-                threshold: 10,
-                thresholdDuration: 300,
-              },
-            ],
-            enabled: true,
-          },
-        ],
-      };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.metricEvents).toHaveLength(1);
-      const event = result.data!.metricEvents[0]!;
-      expect((event.summary as string).startsWith('[Migrated]')).toBe(true);
-      expect(event.enabled).toBe(true);
-      expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
-      expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
-    });
-
-    it('should create placeholder for non nrql condition', () => {
-      const policy = {
-        name: 'Test',
-        conditions: [
-          { name: 'APM Cond', conditionType: 'APM' },
-        ],
-      };
-      const result = alertTransformer.transform(policy);
-      expect(result.success).toBe(true);
-      expect(result.data!.metricEvents).toHaveLength(1);
-      expect(result.data!.metricEvents[0]!.enabled).toBe(false);
-    });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    const event = result.data!.metricEvents[0]!;
+    expect(event.schemaId).toBe('builtin:anomaly-detection.metric-events');
+    expect(event.summary.startsWith('[Migrated]')).toBe(true);
+    expect(event.enabled).toBe(true);
+    expect(event.entityTags).toEqual({ 'nr-migrated': 'test-policy' });
+    expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
+    expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
+    expect((event.queryDefinition as Record<string, unknown>).metricKey).toBe(
+      'builtin:service.errors.total.rate',
+    );
   });
 
-  describe('monitoring strategy', () => {
-    it('should build default strategy', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const strategy = (alertTransformer as any).buildMonitoringStrategy([], 60, '', []);
-      expect(strategy.type).toBe('STATIC_THRESHOLD');
-      expect(strategy.alertCondition).toBe('ABOVE');
+  it('should emit disabled placeholder event for non-NRQL conditions', () => {
+    const result = alertTransformer.transform({
+      name: 'Test',
+      conditions: [{ name: 'APM Cond', conditionType: 'APM' }],
     });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    expect(result.data!.metricEvents[0]!.enabled).toBe(false);
+  });
 
-    it('should use critical term', () => {
-      const terms = [
+  it('should warn that workflow has no tasks attached', () => {
+    const result = alertTransformer.transform({ name: 'Test Policy', conditions: [] });
+    expect(result.warnings.some((w) => w.includes('no tasks'))).toBe(true);
+  });
+
+  it('should transform multiple policies', () => {
+    const results = alertTransformer.transformAll([
+      { name: 'P1', conditions: [] },
+      { name: 'P2', conditions: [] },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
+  });
+});
+
+describe('LegacyAlertTransformer (Gen2 Alerting Profile + Metric Event)', () => {
+  let legacy: LegacyAlertTransformer;
+
+  beforeEach(() => {
+    legacy = new LegacyAlertTransformer();
+  });
+
+  it('should emit legacy warning', () => {
+    const result = legacy.transform({ name: 'Test', conditions: [] });
+    expect(result.warnings[0]).toContain('Gen2');
+  });
+
+  it('should transform empty policy with alertingProfile', () => {
+    const result = legacy.transform({ name: 'Test Policy', id: '123', conditions: [] });
+    expect(result.success).toBe(true);
+    expect(result.data!.alertingProfile).toBeDefined();
+    expect((result.data!.alertingProfile as Record<string, unknown>).name).toContain('[Migrated]');
+    expect(result.data!.metricEvents).toEqual([]);
+  });
+
+  it('should transform with nrql condition', () => {
+    const result = legacy.transform({
+      name: 'Test Policy',
+      id: '123',
+      conditions: [
+        {
+          name: 'High Error Rate',
+          conditionType: 'NRQL',
+          nrql: { query: 'SELECT count(*) FROM TransactionError' },
+          signal: { aggregationWindow: 60 },
+          terms: [
+            { priority: 'critical', operator: 'ABOVE', threshold: 10, thresholdDuration: 300 },
+          ],
+          enabled: true,
+        },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    const event = result.data!.metricEvents[0]!;
+    expect((event.summary as string).startsWith('[Migrated]')).toBe(true);
+    expect(event.enabled).toBe(true);
+    expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
+    expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
+  });
+
+  it('should create placeholder for non nrql condition', () => {
+    const result = legacy.transform({
+      name: 'Test',
+      conditions: [{ name: 'APM Cond', conditionType: 'APM' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.metricEvents).toHaveLength(1);
+    expect(result.data!.metricEvents[0]!.enabled).toBe(false);
+  });
+
+  it('should build default monitoring strategy', () => {
+    const strategy = legacy.buildMonitoringStrategy([], 60, '', []);
+    expect(strategy.type).toBe('STATIC_THRESHOLD');
+    expect(strategy.alertCondition).toBe('ABOVE');
+  });
+
+  it('should use critical term', () => {
+    const strategy = legacy.buildMonitoringStrategy(
+      [
         { priority: 'warning', operator: 'ABOVE', threshold: 5 },
         { priority: 'critical', operator: 'BELOW', threshold: 100 },
-      ];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const strategy = (alertTransformer as any).buildMonitoringStrategy(terms, 60, '', []);
-      expect(strategy.alertCondition).toBe('BELOW');
-      expect(strategy.threshold).toBe(100);
-    });
+      ],
+      60,
+      '',
+      [],
+    );
+    expect(strategy.alertCondition).toBe('BELOW');
+    expect(strategy.threshold).toBe(100);
+  });
 
-    it('should handle at least once occurrences', () => {
-      const terms = [
+  it('should handle at least once occurrences', () => {
+    const strategy = legacy.buildMonitoringStrategy(
+      [
         {
           priority: 'critical',
           operator: 'ABOVE',
@@ -348,124 +410,301 @@ describe('AlertTransformer', () => {
           thresholdDuration: 300,
           thresholdOccurrences: 'AT_LEAST_ONCE',
         },
-      ];
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const strategy = (alertTransformer as any).buildMonitoringStrategy(terms, 60, '', []);
-      expect(strategy.violatingSamples).toBe(1);
-    });
+      ],
+      60,
+      '',
+      [],
+    );
+    expect(strategy.violatingSamples).toBe(1);
   });
 
-  describe('extract metric', () => {
-    it('should extract duration metric', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT average(duration) FROM Transaction',
-      );
-      expect(metric).toBe('builtin:service.response.time');
-    });
-
-    it('should extract error metric', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT count(*) FROM TransactionError',
-      );
-      expect(metric).toBe('builtin:service.errors.total.rate');
-    });
-
-    it('should extract cpu metric', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT average(cpuPercent) FROM SystemSample',
-      );
-      expect(metric).toBe('builtin:host.cpu.usage');
-    });
-
-    it('should return undefined for unknown', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const metric = (alertTransformer as any).extractMetricFromNrql(
-        'SELECT count(*) FROM CustomEvent',
-      );
-      expect(metric).toBeUndefined();
-    });
+  it('should extract duration metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT average(duration) FROM Transaction')).toBe(
+      'builtin:service.response.time',
+    );
   });
 
-  describe('transform all', () => {
-    it('should transform multiple policies', () => {
-      const policies = [
-        { name: 'P1', conditions: [] },
-        { name: 'P2', conditions: [] },
-      ];
-      const results = alertTransformer.transformAll(policies);
-      expect(results).toHaveLength(2);
-      expect(results.every((r) => r.success)).toBe(true);
-    });
+  it('should extract error metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT count(*) FROM TransactionError')).toBe(
+      'builtin:service.errors.total.rate',
+    );
+  });
+
+  it('should extract cpu metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT average(cpuPercent) FROM SystemSample')).toBe(
+      'builtin:host.cpu.usage',
+    );
+  });
+
+  it('should return undefined for unknown metric', () => {
+    expect(legacy.extractMetricFromNrql('SELECT count(*) FROM CustomEvent')).toBeUndefined();
+  });
+
+  it('should transform all', () => {
+    const results = legacy.transformAll([
+      { name: 'P1', conditions: [] },
+      { name: 'P2', conditions: [] },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
   });
 });
 
 // ─── NotificationTransformer ────────────────────────────────────────────────
 
-describe('NotificationTransformer', () => {
+describe('NotificationTransformer (Gen3 Workflow tasks)', () => {
   let notifTransformer: NotificationTransformer;
 
   beforeEach(() => {
     notifTransformer = new NotificationTransformer();
   });
 
-  it('should transform email channel', () => {
-    const channel = {
+  it('should emit email workflow task', () => {
+    const result = notifTransformer.transform({
       name: 'Team Email',
       type: 'EMAIL',
       active: true,
       properties: [{ key: 'recipients', value: 'a@b.com,c@d.com' }],
-    };
-    const result = notifTransformer.transform(channel);
+    });
     expect(result.success).toBe(true);
-    expect(result.data!.integrationType).toBe('email');
-    expect((result.data!.config.recipients as string[])).toContain('a@b.com');
+    expect(result.data!.action).toBe('dynatrace.email:email-action');
+    expect(result.data!.name).toBe('team_email');
+    expect((result.data!.input.to as string[])).toContain('a@b.com');
+    expect((result.data!.input.to as string[])).toContain('c@d.com');
   });
 
-  it('should transform slack channel', () => {
-    const channel = {
+  it('should emit slack workflow task with channel and connection', () => {
+    const result = notifTransformer.transform({
       name: 'Slack Alert',
       type: 'SLACK',
       properties: [
         { key: 'url', value: 'https://hooks.slack.com/xxx' },
         { key: 'channel', value: '#alerts' },
       ],
-    };
-    const result = notifTransformer.transform(channel);
+    });
     expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.slack:slack-action');
+    expect(result.data!.input.channel).toBe('#alerts');
+    expect(result.data!.input.connection).toBe('https://hooks.slack.com/xxx');
+  });
+
+  it('should emit pagerduty workflow task', () => {
+    const result = notifTransformer.transform({
+      name: 'PD',
+      type: 'PAGERDUTY',
+      properties: [{ key: 'service_key', value: 'abc123' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.pagerduty:pagerduty-action');
+    expect(result.data!.input.integrationKey).toBe('abc123');
+  });
+
+  it('should emit webhook via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'Hook',
+      type: 'WEBHOOK',
+      properties: [{ key: 'base_url', value: 'https://example.com/hook' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect(result.data!.input.url).toBe('https://example.com/hook');
+    expect(result.data!.input.method).toBe('POST');
+  });
+
+  it('should emit opsgenie via http action with GenieKey header', () => {
+    const result = notifTransformer.transform({
+      name: 'OG',
+      type: 'OPSGENIE',
+      properties: [{ key: 'api_key', value: 'ogkey' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect((result.data!.input.headers as Record<string, string>).Authorization).toBe(
+      'GenieKey ogkey',
+    );
+  });
+
+  it('should emit xmatters via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'XM',
+      type: 'XMATTERS',
+      properties: [{ key: 'url', value: 'https://xm.example.com/inbound' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect(result.data!.input.url).toBe('https://xm.example.com/inbound');
+  });
+
+  it('should emit jira create-issue action', () => {
+    const result = notifTransformer.transform({
+      name: 'Jira',
+      type: 'JIRA',
+      properties: [
+        { key: 'project', value: 'OPS' },
+        { key: 'issue_type', value: 'Bug' },
+      ],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.jira:create-issue-action');
+    expect(result.data!.input.projectKey).toBe('OPS');
+    expect(result.data!.input.issueType).toBe('Bug');
+  });
+
+  it('should emit servicenow incident action', () => {
+    const result = notifTransformer.transform({
+      name: 'SNOW',
+      type: 'SERVICENOW',
+      properties: [{ key: 'instance', value: 'acme.service-now.com' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.servicenow:incident-action');
+    expect(result.data!.input.instance).toBe('acme.service-now.com');
+  });
+
+  it('should emit teams via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'Teams',
+      type: 'TEAMS',
+      properties: [{ key: 'url', value: 'https://outlook.office.com/webhook/xxx' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+    expect(result.data!.input.url).toBe('https://outlook.office.com/webhook/xxx');
+  });
+
+  it('should emit victorops via http action', () => {
+    const result = notifTransformer.transform({
+      name: 'VO',
+      type: 'VICTOROPS',
+      properties: [{ key: 'url', value: 'https://alert.victorops.com/integrations/xxx' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.action).toBe('dynatrace.http:http-action');
+  });
+
+  it('should fail unsupported type', () => {
+    const result = notifTransformer.transform({
+      name: 'Unknown',
+      type: 'UNKNOWN_TYPE',
+      properties: [],
+    });
+    expect(result.success).toBe(false);
+    expect(result.errors.length).toBeGreaterThan(0);
+  });
+
+  it('should sanitize task name', () => {
+    const result = notifTransformer.transform({
+      name: 'Team Email!! 1',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'a@b.com' }],
+    });
+    expect(result.data!.name).toBe('team_email_1');
+  });
+
+  it('should emit routing filter from Notification Policies v2 policyName', () => {
+    const result = notifTransformer.transform({
+      name: 'On-call',
+      type: 'PAGERDUTY',
+      properties: [{ key: 'service_key', value: 'k' }],
+      routing: { policyName: 'prod-critical' },
+    });
+    expect(result.data!.filter).toContain('prod-critical');
+    expect(result.data!.filter).toContain("event()['event.source']");
+  });
+
+  it('should emit routing filter combining entityTags and severity', () => {
+    const result = notifTransformer.transform({
+      name: 'On-call',
+      type: 'PAGERDUTY',
+      properties: [{ key: 'service_key', value: 'k' }],
+      routing: {
+        entityTags: { env: 'prod', team: 'payments' },
+        severityAtLeast: 'ERROR',
+      },
+    });
+    expect(result.data!.filter).toContain('affected_entity_tags.env');
+    expect(result.data!.filter).toContain('"prod"');
+    expect(result.data!.filter).toContain('affected_entity_tags.team');
+    expect(result.data!.filter).toContain('ERROR');
+    expect(result.data!.filter).toContain('AVAILABILITY');
+    expect(result.data!.filter).not.toContain('PERFORMANCE');
+    expect(result.data!.filter!.split(' and ').length).toBeGreaterThan(1);
+  });
+
+  it('should not add a filter when routing.severityAtLeast is ALL with no other criteria', () => {
+    const result = notifTransformer.transform({
+      name: 'Default',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'a@b.com' }],
+      routing: { severityAtLeast: 'ALL' },
+    });
+    expect(result.data!.filter).toBeUndefined();
+  });
+
+  it('should not add a filter when routing is absent', () => {
+    const result = notifTransformer.transform({
+      name: 'Default',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'a@b.com' }],
+    });
+    expect(result.data!.filter).toBeUndefined();
+  });
+});
+
+describe('LegacyNotificationTransformer (Gen2 classic problem notifications)', () => {
+  let legacy: LegacyNotificationTransformer;
+
+  beforeEach(() => {
+    legacy = new LegacyNotificationTransformer();
+  });
+
+  it('should emit legacy warning on every channel', () => {
+    const result = legacy.transform({
+      name: 'E',
+      type: 'EMAIL',
+      properties: [{ key: 'recipients', value: 'x@y.com' }],
+    });
+    expect(result.warnings[0]).toContain('Gen2');
+  });
+
+  it('should transform email channel (classic)', () => {
+    const result = legacy.transform({
+      name: 'Team Email',
+      type: 'EMAIL',
+      active: true,
+      properties: [{ key: 'recipients', value: 'a@b.com,c@d.com' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.integrationType).toBe('email');
+    expect((result.data!.config.recipients as string[])).toContain('a@b.com');
+    expect(result.data!.config.subject).toBe('[Dynatrace] {ProblemTitle}');
+  });
+
+  it('should transform slack channel (classic)', () => {
+    const result = legacy.transform({
+      name: 'Slack',
+      type: 'SLACK',
+      properties: [
+        { key: 'url', value: 'https://hooks.slack.com/xxx' },
+        { key: 'channel', value: '#alerts' },
+      ],
+    });
     expect(result.data!.integrationType).toBe('slack');
     expect(result.data!.config.channel).toBe('#alerts');
   });
 
-  it('should transform pagerduty channel', () => {
-    const channel = {
-      name: 'PD',
-      type: 'PAGERDUTY',
-      properties: [{ key: 'service_key', value: 'abc123' }],
-    };
-    const result = notifTransformer.transform(channel);
-    expect(result.success).toBe(true);
-    expect(result.data!.integrationType).toBe('pagerduty');
-  });
-
-  it('should transform webhook channel', () => {
-    const channel = {
+  it('should transform webhook channel (classic)', () => {
+    const result = legacy.transform({
       name: 'Hook',
       type: 'WEBHOOK',
       properties: [{ key: 'base_url', value: 'https://example.com/hook' }],
-    };
-    const result = notifTransformer.transform(channel);
-    expect(result.success).toBe(true);
-    expect(result.data!.integrationType).toBe('webhook');
+    });
+    expect(result.data!.config.payload).toBe('{ProblemDetailsJSON}');
   });
 
   it('should fail unsupported type', () => {
-    const channel = { name: 'Unknown', type: 'UNKNOWN_TYPE', properties: [] };
-    const result = notifTransformer.transform(channel);
+    const result = legacy.transform({ name: 'X', type: 'UNKNOWN', properties: [] });
     expect(result.success).toBe(false);
-    expect(result.errors.length).toBeGreaterThan(0);
   });
 });
 
@@ -778,6 +1017,62 @@ describe('SLOTransformer', () => {
     });
   });
 
+  describe('transformV3 (Service Levels v3)', () => {
+    it('should fail without sli.nrql', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const result = sloTransformer.transformV3({ name: 'x', sli: {} as any });
+      expect(result.success).toBe(false);
+    });
+
+    it('should emit DTSlo with rolling timeframe', () => {
+      const result = sloTransformer.transformV3({
+        name: 'Checkout availability',
+        sli: { nrql: "SELECT percentage(count(*), WHERE error IS NULL) FROM Transaction" },
+        target: 99.5,
+        timeWindow: { rolling: { count: 30, unit: 'DAY' } },
+      });
+      expect(result.success).toBe(true);
+      expect(result.data!.timeframe).toBe('-30d');
+      expect(result.data!.target).toBe(99.5);
+      expect(result.data!.name).toContain('[Migrated SLv3]');
+    });
+
+    it('should map calendar-aligned window to snap expression', () => {
+      const result = sloTransformer.transformV3({
+        name: 'x',
+        sli: { nrql: 'q' },
+        timeWindow: { calendarAligned: { unit: 'MONTH' } },
+      });
+      expect(result.data!.timeframe).toBe('-1M@M');
+    });
+
+    it('should combine nrql + badEventsNrql when provided', () => {
+      const result = sloTransformer.transformV3({
+        name: 'errs',
+        sli: {
+          nrql: 'SELECT count(*) FROM Transaction',
+          badEventsNrql: "duration > 1 AND error IS NOT NULL",
+        },
+      });
+      expect(result.success).toBe(true);
+      expect(result.data!.metricExpression).toContain('builtin:service.errors');
+    });
+
+    it('should include entityGuid filter when supplied', () => {
+      const result = sloTransformer.transformV3({
+        name: 'x',
+        sli: { nrql: 'q' },
+        entityGuid: 'SERVICE-123',
+      });
+      expect(result.data!.filter).toBe('entityId("SERVICE-123")');
+    });
+
+    it('should surface v3-specific review warning', () => {
+      const result = sloTransformer.transformV3({ name: 'x', sli: { nrql: 'q' } });
+      expect(result.warnings.some((w) => w.includes('v3'))).toBe(true);
+    });
+  });
+
   describe('transform all', () => {
     it('should transform multiple slos', () => {
       const slos = [
@@ -803,164 +1098,226 @@ describe('SLOTransformer', () => {
 // WorkloadTransformer
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('WorkloadTransformer', () => {
+describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
   let workloadTransformer: WorkloadTransformer;
 
   beforeEach(() => {
     workloadTransformer = new WorkloadTransformer();
   });
 
-  describe('WorkloadTransformResult', () => {
-    it('should default lists', () => {
-      const nr = {
-        name: 'Test',
-        collection: [{ name: 'app', type: 'APPLICATION' }],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.warnings).toBeDefined();
-      expect(result.errors).toBeDefined();
+  it('should emit Gen3 segment with manual-step warnings', () => {
+    const result = workloadTransformer.transform({
+      name: 'Production Services',
+      collection: [{ name: 'web-app', type: 'APPLICATION' }],
+    });
+    expect(result.success).toBe(true);
+    const seg = result.data!;
+    expect(seg.schemaId).toBe('builtin:segment');
+    expect(seg.name).toBe('[Migrated] Production Services');
+    expect(seg.isPublic).toBe(false);
+    expect(seg.includes.items).toHaveLength(1);
+    expect(seg.manualSteps.length).toBeGreaterThan(0);
+    expect(result.warnings.some((w) => w.includes('bucket-scoped IAM'))).toBe(true);
+  });
+
+  it('should group collection entities by data object', () => {
+    const result = workloadTransformer.transform({
+      name: 'Mixed',
+      collection: [
+        { name: 'web-app', type: 'APPLICATION' },
+        { name: 'api-server', type: 'APM_APPLICATION' },
+        { name: 'host-1', type: 'HOST' },
+      ],
+    });
+    const includes = result.data!.includes.items;
+    // APPLICATION + APM_APPLICATION both map to SERVICE→spans; HOST→logs
+    expect(includes.find((i) => i.dataObject === 'spans')).toBeDefined();
+    expect(includes.find((i) => i.dataObject === 'logs')).toBeDefined();
+  });
+
+  it('should emit Statement filter on service.name for APPLICATION', () => {
+    const result = workloadTransformer.transform({
+      name: 'Prod',
+      collection: [{ name: 'web-app', type: 'APPLICATION' }],
+    });
+    const include = result.data!.includes.items[0]!;
+    expect(include.dataObject).toBe('spans');
+    expect(include.filter).toEqual({
+      type: 'Statement',
+      key: { value: 'service.name' },
+      operator: { value: '=' },
+      value: { value: 'web-app' },
     });
   });
 
-  describe('workload transform', () => {
-    it('should transform workload with collection', () => {
-      const nr = {
-        name: 'Production Services',
-        collection: [
-          { name: 'web-app', type: 'APPLICATION' },
-          { name: 'api-server', type: 'APM_APPLICATION' },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const mz = result.data!;
-      expect(mz.name).toBe('[Migrated] Production Services');
-      expect(mz.rules).toHaveLength(2);
+  it('should OR-group multiple entities of same data object', () => {
+    const result = workloadTransformer.transform({
+      name: 'Services',
+      collection: [
+        { name: 'svc-a', type: 'APPLICATION' },
+        { name: 'svc-b', type: 'APPLICATION' },
+      ],
     });
-
-    it('should create tag rule when no entities', () => {
-      const nr = { name: 'Empty Workload', collection: [], entitySearchQueries: [] };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      expect(result.data!.rules).toHaveLength(1); // tag-based fallback
-      expect(result.data!.rules[0]!.entitySelector).toContain('tag(');
-    });
-
-    it('should handle unmapped entity types', () => {
-      const nr = {
-        name: 'Mixed',
-        collection: [
-          { name: 'dash-1', type: 'DASHBOARD' }, // No DT equivalent
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      expect(result.warnings.length).toBeGreaterThan(0);
-    });
+    const include = result.data!.includes.items[0]!;
+    expect(include.filter.type).toBe('Group');
+    if (include.filter.type === 'Group') {
+      expect(include.filter.logicalOperator).toBe('OR');
+      expect(include.filter.children).toHaveLength(2);
+    }
   });
 
-  describe('entity search queries', () => {
-    it('should convert type query', () => {
-      const nr = {
-        name: 'Apps',
-        entitySearchQueries: [
-          { query: "type = 'APPLICATION'" },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const rules = result.data!.rules;
-      expect(rules.length).toBeGreaterThanOrEqual(1);
-      expect(rules[0]!.entitySelector).toContain('SERVICE');
+  it('should fallback to tag-based segment when empty', () => {
+    const result = workloadTransformer.transform({
+      name: 'Empty Workload',
+      collection: [],
+      entitySearchQueries: [],
     });
-
-    it('should convert name like query', () => {
-      const nr = {
-        name: 'Prod',
-        entitySearchQueries: [
-          { query: "type = 'APPLICATION' AND name LIKE 'production%'" },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const rules = result.data!.rules;
-      expect(rules.some((r) => r.entitySelector.includes('entityName.contains'))).toBe(true);
-    });
-
-    it('should convert tag query', () => {
-      const nr = {
-        name: 'Tagged',
-        entitySearchQueries: [
-          { query: "type = 'HOST' AND tags.environment = 'production'" },
-        ],
-      };
-      const result = workloadTransformer.transform(nr);
-      expect(result.success).toBe(true);
-      const rules = result.data!.rules;
-      expect(rules.some((r) => r.entitySelector.includes('tag('))).toBe(true);
-    });
+    expect(result.success).toBe(true);
+    const include = result.data!.includes.items[0]!;
+    expect(include.dataObject).toBe('_all_data_object');
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.key.value).toBe('migrated-workload');
+      expect(include.filter.value.value).toBe('empty-workload');
+    }
   });
 
-  describe('parse entity query', () => {
-    it('should extract entity type', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("type = 'APPLICATION'");
-      expect(parsed.entityType).toBe('APPLICATION');
+  it('should warn on unmapped entity types and skip them', () => {
+    const result = workloadTransformer.transform({
+      name: 'Mixed',
+      collection: [{ name: 'dash-1', type: 'DASHBOARD' }],
     });
-
-    it('should extract host type', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("type = 'HOST'");
-      expect(parsed.entityType).toBe('HOST');
-    });
-
-    it('should extract name filter', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("name LIKE 'prod%'");
-      expect(parsed.nameFilter).toBe('prod');
-    });
-
-    it('should extract tags', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const parsed = (workloadTransformer as any).parseEntityQuery("tags.env = 'prod'");
-      expect(parsed.tags).toContainEqual(['env', 'prod']);
-    });
+    expect(result.success).toBe(true);
+    expect(result.warnings.some((w) => w.includes('DASHBOARD'))).toBe(true);
   });
 
-  describe('create rules', () => {
-    it('should create name rule', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rule = (workloadTransformer as any).createNameRule('SERVICE', 'my-app');
-      expect(rule.type).toBe('ME');
-      expect(rule.enabled).toBe(true);
-      expect(rule.entitySelector).toContain('entityName.equals("my-app")');
+  it('should convert type query to type-filter statement', () => {
+    const result = workloadTransformer.transform({
+      name: 'Apps',
+      entitySearchQueries: [{ query: "type = 'APPLICATION'" }],
     });
-
-    it('should create tag rule', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rule = (workloadTransformer as any).createTagRule('My Workload');
-      expect(rule.entitySelector).toContain('tag("migrated-workload:my-workload")');
-    });
-
-    it('should sanitize tag value', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const rule = (workloadTransformer as any).createTagRule('Special (chars) here!');
-      const selector = rule.entitySelector as string;
-      const tagContent = selector.split('tag(')[1]!.split(')')[0]!;
-      const tagValue = tagContent.replace('"migrated-workload:', '').replace('"', '');
-      expect(tagValue).not.toContain('(');
-    });
+    expect(result.success).toBe(true);
+    const include = result.data!.includes.items[0]!;
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.key.value).toBe('dt.entity.type');
+      expect(include.filter.value.value).toBe('SERVICE');
+    }
   });
 
-  describe('transform all', () => {
-    it('should transform multiple workloads', () => {
-      const workloads = [
-        { name: 'W1', collection: [{ name: 'app1', type: 'APPLICATION' }] },
-        { name: 'W2', collection: [{ name: 'host1', type: 'HOST' }] },
-      ];
-      const results = workloadTransformer.transformAll(workloads);
-      expect(results).toHaveLength(2);
-      expect(results.every((r) => r.success)).toBe(true);
+  it('should convert name-like query to contains statement', () => {
+    const result = workloadTransformer.transform({
+      name: 'Prod',
+      entitySearchQueries: [{ query: "type = 'APPLICATION' AND name LIKE 'production%'" }],
     });
+    const include = result.data!.includes.items[0]!;
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.operator.value).toBe('contains');
+      expect(include.filter.value.value).toBe('production');
+    }
+  });
+
+  it('should convert tag query to tag-key statement', () => {
+    const result = workloadTransformer.transform({
+      name: 'Tagged',
+      entitySearchQueries: [
+        { query: "type = 'HOST' AND tags.environment = 'production'" },
+      ],
+    });
+    const include = result.data!.includes.items[0]!;
+    if (include.filter.type === 'Statement') {
+      expect(include.filter.key.value).toBe('environment');
+      expect(include.filter.value.value).toBe('production');
+    }
+  });
+});
+
+describe('LegacyWorkloadTransformer (Gen2 Management Zone)', () => {
+  let legacy: LegacyWorkloadTransformer;
+
+  beforeEach(() => {
+    legacy = new LegacyWorkloadTransformer();
+  });
+
+  it('should emit legacy warning', () => {
+    const result = legacy.transform({ name: 'Test', collection: [] });
+    expect(result.warnings[0]).toContain('Gen2');
+  });
+
+  it('should transform workload with collection', () => {
+    const nr = {
+      name: 'Production Services',
+      collection: [
+        { name: 'web-app', type: 'APPLICATION' },
+        { name: 'api-server', type: 'APM_APPLICATION' },
+      ],
+    };
+    const result = legacy.transform(nr);
+    expect(result.success).toBe(true);
+    const mz = result.data!;
+    expect(mz.name).toBe('[Migrated] Production Services');
+    expect(mz.rules).toHaveLength(2);
+  });
+
+  it('should create tag rule when no entities', () => {
+    const result = legacy.transform({
+      name: 'Empty Workload',
+      collection: [],
+      entitySearchQueries: [],
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.rules).toHaveLength(1);
+    expect(result.data!.rules[0]!.entitySelector).toContain('tag(');
+  });
+
+  it('should handle unmapped entity types', () => {
+    const result = legacy.transform({
+      name: 'Mixed',
+      collection: [{ name: 'dash-1', type: 'DASHBOARD' }],
+    });
+    expect(result.success).toBe(true);
+    expect(result.warnings.length).toBeGreaterThan(0);
+  });
+
+  it('should convert type query', () => {
+    const result = legacy.transform({
+      name: 'Apps',
+      entitySearchQueries: [{ query: "type = 'APPLICATION'" }],
+    });
+    const rules = result.data!.rules;
+    expect(rules.length).toBeGreaterThanOrEqual(1);
+    expect(rules[0]!.entitySelector).toContain('SERVICE');
+  });
+
+  it('should convert name like query', () => {
+    const result = legacy.transform({
+      name: 'Prod',
+      entitySearchQueries: [{ query: "type = 'APPLICATION' AND name LIKE 'production%'" }],
+    });
+    expect(
+      result.data!.rules.some((r) => r.entitySelector.includes('entityName.contains')),
+    ).toBe(true);
+  });
+
+  it('should convert tag query', () => {
+    const result = legacy.transform({
+      name: 'Tagged',
+      entitySearchQueries: [{ query: "type = 'HOST' AND tags.environment = 'production'" }],
+    });
+    expect(result.data!.rules.some((r) => r.entitySelector.includes('tag('))).toBe(true);
+  });
+
+  it('should parse entity types in queries', () => {
+    expect(legacy.parseEntityQuery("type = 'APPLICATION'").entityType).toBe('APPLICATION');
+    expect(legacy.parseEntityQuery("type = 'HOST'").entityType).toBe('HOST');
+    expect(legacy.parseEntityQuery("name LIKE 'prod%'").nameFilter).toBe('prod');
+    expect(legacy.parseEntityQuery("tags.env = 'prod'").tags).toContainEqual(['env', 'prod']);
+  });
+
+  it('should transform multiple workloads', () => {
+    const results = legacy.transformAll([
+      { name: 'W1', collection: [{ name: 'app1', type: 'APPLICATION' }] },
+      { name: 'W2', collection: [{ name: 'host1', type: 'HOST' }] },
+    ]);
+    expect(results).toHaveLength(2);
+    expect(results.every((r) => r.success)).toBe(true);
   });
 });

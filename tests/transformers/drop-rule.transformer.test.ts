@@ -125,3 +125,104 @@ describe('DropRuleTransformAll', () => {
     expect(results.every((r) => r.success)).toBe(true);
   });
 });
+
+// ═════════════════════════════════════════════════════════════════════════════
+// v2 (attribute-scoped) tests
+// ═════════════════════════════════════════════════════════════════════════════
+
+describe('DropRuleTransformer v2', () => {
+  it('should emit openpipeline.processor.drop for DROP_DATA', () => {
+    const result = dropRuleTransformer.transformV2({
+      name: 'drop staging',
+      pipeline: 'logs',
+      action: 'DROP_DATA',
+      matcher: 'env == "staging"',
+    });
+    expect(result.success).toBe(true);
+    expect(result.data!.schemaId).toBe('builtin:openpipeline.processor.drop');
+    expect(result.data!.pipeline).toBe('logs');
+    expect(result.data!.matcher).toBe('env == "staging"');
+  });
+
+  it('should emit fieldsRemove for DROP_ATTRIBUTES', () => {
+    const result = dropRuleTransformer.transformV2({
+      pipeline: 'spans',
+      action: 'DROP_ATTRIBUTES',
+      matcher: 'true',
+      attributes: ['ssn', 'ccn'],
+    });
+    expect(result.data!.schemaId).toBe('builtin:openpipeline.processor.fieldsRemove');
+    if (result.data!.schemaId === 'builtin:openpipeline.processor.fieldsRemove') {
+      expect(result.data.fields).toEqual(['ssn', 'ccn']);
+    }
+  });
+
+  it('should emit fieldsKeep for KEEP_ATTRIBUTES with allow-list warning', () => {
+    const result = dropRuleTransformer.transformV2({
+      pipeline: 'bizevents',
+      action: 'KEEP_ATTRIBUTES',
+      attributes: ['event.id', 'timestamp'],
+    });
+    expect(result.data!.schemaId).toBe('builtin:openpipeline.processor.fieldsKeep');
+    if (result.data!.schemaId === 'builtin:openpipeline.processor.fieldsKeep') {
+      expect(result.data.keepFields).toEqual(['event.id', 'timestamp']);
+    }
+    expect(result.warnings.some((w) => w.includes('allow-list'))).toBe(true);
+  });
+
+  it('should default matcher to "true" when blank', () => {
+    const result = dropRuleTransformer.transformV2({
+      pipeline: 'logs',
+      action: 'DROP_DATA',
+    });
+    expect(result.data!.matcher).toBe('true');
+  });
+
+  it('should fail DROP_ATTRIBUTES without attributes list', () => {
+    const result = dropRuleTransformer.transformV2({
+      pipeline: 'logs',
+      action: 'DROP_ATTRIBUTES',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should fail KEEP_ATTRIBUTES without attributes list', () => {
+    const result = dropRuleTransformer.transformV2({
+      pipeline: 'logs',
+      action: 'KEEP_ATTRIBUTES',
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('should route to each supported pipeline', () => {
+    const pipelines = ['logs', 'spans', 'bizevents', 'metrics'] as const;
+    for (const pipeline of pipelines) {
+      const result = dropRuleTransformer.transformV2({
+        pipeline,
+        action: 'DROP_DATA',
+      });
+      expect(result.data!.pipeline).toBe(pipeline);
+    }
+  });
+
+  it('should default enabled to true; honor explicit false', () => {
+    const a = dropRuleTransformer.transformV2({ pipeline: 'logs', action: 'DROP_DATA' });
+    expect(a.data!.enabled).toBe(true);
+    const b = dropRuleTransformer.transformV2({
+      pipeline: 'logs',
+      action: 'DROP_DATA',
+      enabled: false,
+    });
+    expect(b.data!.enabled).toBe(false);
+  });
+
+  it('should handle v2 batches via transformAllV2', () => {
+    const results = dropRuleTransformer.transformAllV2([
+      { pipeline: 'logs', action: 'DROP_DATA' },
+      { pipeline: 'spans', action: 'DROP_ATTRIBUTES', attributes: ['x'] },
+      { pipeline: 'bizevents', action: 'KEEP_ATTRIBUTES', attributes: ['y'] },
+    ]);
+    expect(results).toHaveLength(3);
+    expect(results.every((r) => r.success)).toBe(true);
+  });
+});

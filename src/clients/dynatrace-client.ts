@@ -634,6 +634,67 @@ export class DynatraceClient {
     return response.isSuccess;
   }
 
+  /**
+   * Gen3 readiness probe — returns a boolean map telling the caller
+   * whether each DT Gen3 surface the engine relies on is reachable.
+   * Mirrors the Python CLI's `preflight_gen3` capability check.
+   *
+   * Probes are intentionally cheap (pageSize 1 / HEAD-equivalent GET)
+   * so preflight is safe to run from a CI pre-merge gate.
+   */
+  async preflightGen3(): Promise<{
+    readonly settingsV2: boolean;
+    readonly documentApi: boolean;
+    readonly automationApi: boolean;
+    readonly slov2: boolean;
+    readonly diagnostics: string[];
+  }> {
+    const diagnostics: string[] = [];
+
+    const platformUrl = this.environmentUrl.replace('.live.', '.apps.');
+
+    const settingsProbe = await this.get(`${this.apiV2}/settings/objects`, {
+      pageSize: 1,
+      schemaIds: 'builtin:alerting.profile',
+    });
+    if (!settingsProbe.isSuccess) {
+      diagnostics.push(`settings v2: ${settingsProbe.error ?? settingsProbe.statusCode}`);
+    }
+
+    const documentProbe = await this.get(
+      `${platformUrl}/platform/document/v1/documents`,
+      { 'page-size': 1 },
+    );
+    if (!documentProbe.isSuccess) {
+      diagnostics.push(
+        `document API: ${documentProbe.error ?? documentProbe.statusCode}`,
+      );
+    }
+
+    const automationProbe = await this.get(
+      `${platformUrl}/platform/automation/v1/workflows`,
+      { 'page-size': 1 },
+    );
+    if (!automationProbe.isSuccess) {
+      diagnostics.push(
+        `automation API: ${automationProbe.error ?? automationProbe.statusCode}`,
+      );
+    }
+
+    const sloProbe = await this.get(`${this.apiV2}/slo`, { pageSize: 1 });
+    if (!sloProbe.isSuccess) {
+      diagnostics.push(`SLO v2: ${sloProbe.error ?? sloProbe.statusCode}`);
+    }
+
+    return {
+      settingsV2: settingsProbe.isSuccess,
+      documentApi: documentProbe.isSuccess,
+      automationApi: automationProbe.isSuccess,
+      slov2: sloProbe.isSuccess,
+      diagnostics,
+    };
+  }
+
   async backupAll(): Promise<Record<string, unknown>> {
     logger.info('Starting Dynatrace backup');
 

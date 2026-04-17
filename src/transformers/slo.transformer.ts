@@ -27,6 +27,28 @@ export interface NRSloInput {
   readonly events?: NRSloEvents;
 }
 
+/**
+ * Service Levels v3 API input shape. Distinct from the classic SLO
+ * events-based shape — v3 expresses SLIs as a single NRQL query and
+ * an optional bad-events query rather than good+valid pair. Rolling
+ * time window is a count plus unit; calendar windows carry a
+ * `calendarAligned` flag.
+ */
+export interface NRServiceLevelV3Input {
+  readonly name?: string;
+  readonly description?: string;
+  readonly sli: {
+    readonly nrql: string;
+    readonly badEventsNrql?: string;
+  };
+  readonly target?: number;
+  readonly timeWindow?: {
+    readonly rolling?: { readonly count: number; readonly unit: string };
+    readonly calendarAligned?: { readonly unit: string };
+  };
+  readonly entityGuid?: string;
+}
+
 export interface NRSloObjective {
   readonly target?: number;
   readonly timeWindow?: {
@@ -99,6 +121,73 @@ export class SLOTransformer {
 
   transformAll(slos: NRSloInput[]): TransformResult<DTSlo>[] {
     return slos.map((s) => this.transform(s));
+  }
+
+  // ─── Service Levels v3 ─────────────────────────────────────────────────
+
+  transformV3(input: NRServiceLevelV3Input): TransformResult<DTSlo> {
+    try {
+      const name = input.name?.trim();
+      if (!name) return failure(['Service Level v3 name is required']);
+      if (!input.sli?.nrql) {
+        return failure([`Service Level '${name}' has no sli.nrql query`]);
+      }
+
+      const warnings: string[] = [];
+      const description = input.description ?? '';
+      const target = input.target ?? 99.0;
+
+      // Time window: rolling (count+unit) or calendar-aligned.
+      let timeframe = '-7d';
+      if (input.timeWindow?.rolling) {
+        const unit = SLO_TIME_UNIT_MAP[input.timeWindow.rolling.unit] ?? 'DAY';
+        timeframe = this.buildTimeframe(input.timeWindow.rolling.count, unit);
+      } else if (input.timeWindow?.calendarAligned) {
+        const calUnit = input.timeWindow.calendarAligned.unit.toUpperCase();
+        // DT calendar-aligned evaluation uses the `@<unit>` snap suffix.
+        const snap: Record<string, string> = { DAY: '-1d@d', WEEK: '-1w@w', MONTH: '-1M@M' };
+        timeframe = snap[calUnit] ?? '-30d';
+        warnings.push(
+          `Calendar-aligned time window '${input.timeWindow.calendarAligned.unit}' mapped to DQL snap expression '${timeframe}'. Verify month-boundary semantics match NR's v3 calendar alignment.`,
+        );
+      }
+
+      // SLI heuristic: reuse v1 event-type detection by routing the nrql
+      // through detectSloType against the nrql+badEventsNrql pair.
+      const validQuery = input.sli.nrql;
+      const goodQuery = input.sli.badEventsNrql
+        ? `NOT (${input.sli.badEventsNrql})`
+        : input.sli.nrql;
+      const metricExpression = this.buildMetricExpression(
+        { validEvents: { where: validQuery }, goodEvents: { where: goodQuery } },
+        warnings,
+      );
+
+      warnings.push(
+        'Service Levels v3 is a newer NR API shape — the engine maps it to the same DT SLO schema as v1/v2. Validate the emitted metricExpression against your Grail data model before enabling.',
+      );
+
+      const dtSlo: DTSlo = {
+        name: `[Migrated SLv3] ${name}`,
+        description: description || 'Migrated from New Relic Service Levels v3',
+        metricName: this.sanitizeMetricName(name),
+        metricExpression,
+        evaluationType: 'AGGREGATE',
+        filter: input.entityGuid ? `entityId("${input.entityGuid}")` : '',
+        target,
+        warning: Math.min(target + 0.4, 99.9),
+        timeframe,
+        enabled: true,
+      };
+
+      return success(dtSlo, warnings);
+    } catch (err) {
+      return failure([`Transformation error: ${String(err)}`]);
+    }
+  }
+
+  transformAllV3(inputs: NRServiceLevelV3Input[]): TransformResult<DTSlo>[] {
+    return inputs.map((i) => this.transformV3(i));
   }
 
   // -----------------------------------------------------------------------
