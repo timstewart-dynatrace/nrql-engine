@@ -23,7 +23,7 @@
 
 | Module | Tests | Gen3 Verdict |
 |--------|-------|--------------|
-| compiler | 292 | ✅ Gen3 — emits DQL only |
+| compiler | 381 | ✅ Gen3 — emits DQL only |
 | validators | 129 | ✅ Gen3 — DQL syntax + auto-fix |
 | transformers/dashboard | — | ✅ Gen3 (Grail DATA_EXPLORER / DQL) |
 | transformers/drop-rule | — | ✅ Gen3 (OpenPipeline ingest rules) |

@@ -1,5 +1,5 @@
 # Phase 01 — Coverage Audit & Gen2 Inventory
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Produce `docs/COVERAGE.md` mapping every NR surface to its engine status (✅/🟡/🔴/⚫) and identify every Gen2 emission in the current 10 transformers.

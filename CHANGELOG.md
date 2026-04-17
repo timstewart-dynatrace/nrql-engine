@@ -7,7 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Accumulating toward **v2.0.0**. The branch now carries every Phase 01–16 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports), and Phase 16 parity completion (canary rollout, NRDB archive helper, 232-entry extended metric map, OAuth2 platform-token provider + split DT client stack). Test count 838 → 1434 (+596). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+Accumulating toward **v2.0.0**. The branch now carries every Phase 01–16 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports), and Phase 16 parity completion (canary rollout, NRDB archive helper, 232-entry extended metric map, OAuth2 platform-token provider + split DT client stack). Test count 838 → 1562 (+724). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
+
+### Added (validation harness)
+
+- **`tests/validation/compile-through.test.ts`** — end-to-end NRQL→DQL compile coverage over the curated corpus.
+- **`tests/validation/compiler-dql-validity.test.ts`** — asserts every emitted DQL string parses through the DQL syntax validator.
+- **`tests/validation/factory-contract.test.ts`** — enforces the `createTransformer` factory contract across all 46 Gen3 + 12 Legacy kinds.
+
+Tests: 1434 → 1562 (+128 across 3 new test files). Typecheck clean.
+
+### Changed (documentation)
+
+- Doc drift pass: README, `.claude/CLAUDE.md`, and `docs/COVERAGE.md` updated to reflect the current 1562 / 78 suite.
+- `.claude/CLAUDE.md` skill references extended to include `svg-graphics` and `dynatrace-workflow`.
+- Phase file `Status:` fields aligned to their `-done` filenames.
+- Removed empty `tests/cli/` and `tests/exporters/` directories (the engine is a library — CLI / exporters live in consuming projects).
 
 ### Added (Phase 16 — Python parity completion + OAuth2 / split DT client)
 

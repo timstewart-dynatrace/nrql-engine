@@ -1,5 +1,5 @@
 # Phase 14 — Gen2 fallbacks for D-band items
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Close `⚫` / D-band rows in COVERAGE / MIGRATABILITY where classic

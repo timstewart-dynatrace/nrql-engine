@@ -1,5 +1,5 @@
 # Phase 13 — Documentation overhaul (full revalidation)
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Revalidate every markdown file against the actual shipped code and

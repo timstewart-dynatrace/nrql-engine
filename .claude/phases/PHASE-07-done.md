@@ -1,5 +1,5 @@
 # Phase 07 — Re-evaluation & coverage audit
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Step back and verify the engine truly covers *everything migratable* from

@@ -1,5 +1,5 @@
 # Phase 08 — Depth passes on shipped transformers
-Status: PENDING
+Status: DONE
 
 ## Goal
 Upgrade structurally-shipped transformers flagged in the 2026-04-15 audit

@@ -1,5 +1,5 @@
 # Phase 16 — Remaining Python parity + OAuth2/split client
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Close the last Python parity items. OAuth2 + split-client is BREAKING

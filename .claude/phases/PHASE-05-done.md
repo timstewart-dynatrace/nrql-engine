@@ -1,5 +1,5 @@
 # Phase 05 — Ingestion expansion (additive)
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Close the remaining 🔴 ingestion rows in COVERAGE.md §4 (Prometheus, StatsD, OTel collector) with additive Gen3 transformers.

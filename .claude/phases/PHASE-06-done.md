@@ -1,5 +1,5 @@
 # Phase 06 — Compiler metric-name rewriting for infra
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Close the compiler quality gap the Phase 04 corpus surfaced: NRQL

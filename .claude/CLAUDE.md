@@ -9,7 +9,7 @@ Originally ported from the Python NR-to-DT migration tool at `/Users/Shared/GitH
 ## Essential Commands
 
 ```bash
-npm test              # 1434 tests across 82 test files
+npm test              # 1562 tests across 78 test files
 npm run typecheck     # tsc --noEmit
 npm run build         # tsc → dist/
 npm publish           # typecheck + test + build + publish
@@ -38,19 +38,20 @@ src/
                                 # taxonomies + looksMigrated + withRetry
 ```
 
-## Module Status (1434 tests across 82 files)
+## Module Status (1562 tests across 78 files)
 
 | Module                                                                                        | Tests |
 | --------------------------------------------------------------------------------------------- | ----- |
-| Compiler (lexer, parser, emitter, Phase 19 uplift, EXTENDED_METRIC_MAP, corpus)                | 325+  |
+| Compiler (lexer, parser, emitter, Phase 19 uplift, EXTENDED_METRIC_MAP, corpus)                | 381   |
 | Validators (DQL syntax validator + auto-fixer + utils)                                        | 129   |
-| Transformers (46 Gen3 + 12 Legacy / Gen2-only + factory + pure-data helpers)                  | 770+  |
-| Clients (NR NerdGraph + DT API + preflight probes + Phase 16 HttpTransport / OAuth2 / split)  | 90+   |
+| Transformers (46 Gen3 + 12 Legacy / Gen2-only + factory + pure-data helpers)                  | 715   |
+| Clients (NR NerdGraph + DT API + preflight probes + Phase 16 HttpTransport / OAuth2 / split)  | 89    |
 | Config (zod schemas + settings)                                                               | 19    |
 | Registry (DTEnvironmentRegistry + SLO auditor)                                                | 39    |
-| Migration (state, checkpoint, retry, diff + ORPHAN, runAudit, ConversionReport, CanaryPlan)   | 65+   |
-| Utils (WarningCode / ErrorCode taxonomy + looksMigrated + withRetry)                          | 35+   |
+| Migration (state, checkpoint, retry, diff + ORPHAN, runAudit, ConversionReport, CanaryPlan)   | 63    |
+| Utils (WarningCode / ErrorCode taxonomy + looksMigrated + withRetry)                          | 74    |
 | Tools (NRDB archive helper)                                                                   | 8     |
+| Validation harness (compile-through, DQL validity, factory contract)                          | 45    |
 
 Phase history: all 16 phases of the implementation plan complete plus
 a Phase 17 doc overhaul. See `.claude/phases/PHASE-NN-done.md` for the
@@ -92,3 +93,8 @@ See `.claude/DECISIONS.md` for architectural decisions and rationale.
 @/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/k8s-dynatrace-operator/SKILL.md
 @/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-account-management/SKILL.md
 @/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-notebook-authoring/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-workflow/SKILL.md
+
+### Always active — documentation + graphics skills
+
+@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/svg-graphics/SKILL.md

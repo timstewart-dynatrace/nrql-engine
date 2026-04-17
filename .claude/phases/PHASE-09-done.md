@@ -1,5 +1,5 @@
 # Phase 09 — Net-new translators (completeness)
-Status: PENDING
+Status: DONE
 
 ## Goal
 Close the remaining 🔴 rows in COVERAGE.md that Phase 08 depth passes

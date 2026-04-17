@@ -1,5 +1,5 @@
 # Phase 15 — Safety + observability parity with Python CLI
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Absorb the "safety / observability" cluster from the Python

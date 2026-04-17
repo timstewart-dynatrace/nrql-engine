@@ -1,5 +1,5 @@
 # Phase 03 — New Gen3 Transformers
-Status: PENDING
+Status: DONE
 
 ## Goal
 Fill 🔴 gaps with net-new Gen3-native transformers.

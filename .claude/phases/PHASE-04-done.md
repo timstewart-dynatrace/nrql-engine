@@ -1,5 +1,5 @@
 # Phase 04 — Compiler Gap Fill & Non-NRQL Alert Translation
-Status: PENDING
+Status: DONE
 
 ## Goal
 Close remaining NRQL pattern gaps and add non-NRQL alert condition support (Infra/Synth/Browser/Mobile → DQL + Metric Event + Workflow).

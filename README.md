@@ -80,7 +80,7 @@ cp .env.example .env  # only needed for clients / registry
 ## Development
 
 ```bash
-npm test              # Run all 1434 tests
+npm test              # Run all 1562 tests
 npm run typecheck     # Type-check with tsc
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage report
@@ -104,16 +104,17 @@ NR NerdGraph API → Transformers → DT API clients
 
 | Module | Description | Tests |
 |--------|-------------|-------|
-| `compiler/` | NRQL-to-DQL AST compiler (lexer, parser, emitter, Phase 19 uplift, `EXTENDED_METRIC_MAP` 232-entry back-port) | 325+ |
+| `compiler/` | NRQL-to-DQL AST compiler (lexer, parser, emitter, Phase 19 uplift, `EXTENDED_METRIC_MAP` 232-entry back-port) | 381 |
 | `validators/` | DQL syntax validator + auto-fixer + utils | 129 |
-| `transformers/` | 46 Gen3 transformers + 12 Legacy / Gen2-only + factory + pure-data helpers | 770+ |
-| `clients/` | NR NerdGraph + DT API clients with preflight probes + Phase 16 split-client stack (`HttpTransport` + `OAuth2PlatformTokenProvider` + `SettingsV2Client` / `DocumentClient` / `AutomationClient`) | 90+ |
+| `transformers/` | 46 Gen3 transformers + 12 Legacy / Gen2-only + factory + pure-data helpers | 715 |
+| `clients/` | NR NerdGraph + DT API clients with preflight probes + Phase 16 split-client stack (`HttpTransport` + `OAuth2PlatformTokenProvider` + `SettingsV2Client` / `DocumentClient` / `AutomationClient`) | 89 |
 | `config/` | Settings with zod + dotenv | 19 |
 | `registry/` | DTEnvironmentRegistry + SLO auditor | 39 |
-| `utils/` | Phase 15 safety / observability stack — `WarningCode` / `ErrorCode` taxonomies, `looksMigrated()`, `withRetry()` | 35+ |
+| `utils/` | Phase 15 safety / observability stack — `WarningCode` / `ErrorCode` taxonomies, `looksMigrated()`, `withRetry()` | 74 |
 | `tools/` | NRDB archive helper (cursor-resumable pure-data driver) | 8 |
-| `migration/` | State, checkpoint, retry, diff (+ `ORPHAN`), Phase 15 `runAudit`, `ConversionReport`, `CanaryPlan` | 65+ |
-| **Total** | **82 test files** | **1434** |
+| `migration/` | State, checkpoint, retry, diff (+ `ORPHAN`), Phase 15 `runAudit`, `ConversionReport`, `CanaryPlan` | 63 |
+| `tests/validation/` | Compile-through + DQL validity + factory contract harness | 45 |
+| **Total** | **78 test files** | **1562** |
 
 ## Entity Transformer Catalog
 

@@ -1,5 +1,5 @@
 # Phase 17 — Doc overhaul pass for Phases 15 + 16
-Status: ACTIVE
+Status: DONE
 
 ## Goal
 Revalidate every markdown file against Phase 15 + 16 deliverables.

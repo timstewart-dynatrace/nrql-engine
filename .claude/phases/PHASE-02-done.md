@@ -1,5 +1,5 @@
 # Phase 02 — Gen3 Default + Opt-in Legacy (breaking)
-Status: PENDING
+Status: DONE
 
 ## Goal
 Default every transformer to Gen3 output. Preserve Gen2 shapes only as opt-in ("legacy" mode) for special-request parity. Expand notification channel coverage. Bump to v1.0.0.
