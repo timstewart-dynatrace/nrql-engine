@@ -6,8 +6,8 @@ import {
 } from '../../src/compiler/index.js';
 
 describe('EXTENDED_METRIC_MAP', () => {
-  it('has 232 entries (parity with Python METRIC_MAP)', () => {
-    expect(Object.keys(EXTENDED_METRIC_MAP).length).toBe(232);
+  it('has 235 entries (parity with Python METRIC_MAP)', () => {
+    expect(Object.keys(EXTENDED_METRIC_MAP).length).toBe(235);
   });
 
   it('covers key APM service targets', () => {

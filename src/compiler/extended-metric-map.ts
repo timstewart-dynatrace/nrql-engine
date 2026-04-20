@@ -72,6 +72,9 @@ export const EXTENDED_METRIC_MAP: Record<string, string> = {
   "cpuiowaitpercent": "dt.host.cpu.iowait",
   "cpulimitscores": "dt.kubernetes.container.limits_cpu",
   "cpupercent": "dt.host.cpu.usage",
+  // NR `host.*` dotted-prefix form (normalizes to `host<name>` after
+  // `.replaceAll(".", "")`). Added for gh #14 (Dynatrace-NewRelic).
+  "hostcpupercent": "dt.host.cpu.usage",
   "cpurequestscores": "dt.kubernetes.container.requests_cpu",
   "cpustealpercent": "dt.host.cpu.steal",
   "cpusystempercent": "dt.host.cpu.system",
@@ -92,6 +95,7 @@ export const EXTENDED_METRIC_MAP: Record<string, string> = {
   "diskused": "dt.host.disk.used",
   "diskusedbytes": "dt.host.disk.used",
   "diskusedpercent": "dt.host.disk.used.percent",
+  "hostdiskusedpercent": "dt.host.disk.used.percent",  // gh #14
   "diskutilization": "dt.host.disk.used.percent",
   "diskutiltime": "dt.host.disk.util_time",
   "diskwritebytespersecond": "dt.host.disk.bytes_written",
@@ -179,6 +183,7 @@ export const EXTENDED_METRIC_MAP: Record<string, string> = {
   "memoryused": "dt.host.memory.used",
   "memoryusedbytes": "dt.host.memory.used",
   "memoryusedpercent": "dt.host.memory.usage",
+  "hostmemoryusedpercent": "dt.host.memory.usage",  // gh #14
   "memoryutilization": "dt.host.memory.usage",
   "memoryvirtualsize": "dt.process.memory.virtual",
   "memoryworkingsetbytes": "dt.kubernetes.container.memory_working_set",
