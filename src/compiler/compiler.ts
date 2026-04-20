@@ -164,16 +164,22 @@ export class NRQLCompiler {
   }
 
   static expandNrShorthands(nrql: string): string {
+    // `(?<![.\w])...\b` prevents expansion when the shorthand appears as a
+    // suffix of a dotted identifier (e.g.,
+    // `newrelic.goldenmetrics.apm.application.throughput` — the trailing
+    // `throughput` must stay verbatim, not be replaced with
+    // `rate(count(*), 1 minute)`). A plain `\b` would match there because
+    // `.` is a non-word character. The trailing `\b` still guards the right edge.
     const shorthands: [RegExp, string][] = [
-      [/\baverage[Dd]uration\b/g, 'average(duration)'],
-      [/\baverage[Rr]esponse[Tt]ime\b/g, 'average(duration)'],
-      [/\bmax[Dd]uration\b/g, 'max(duration)'],
-      [/\bmin[Dd]uration\b/g, 'min(duration)'],
-      [/\bmedian[Dd]uration\b/g, 'median(duration)'],
-      [/\bapdex[Ss]core\b/g, 'apdex(duration)'],
-      [/\bapdex[Pp]erf[Zz]one\b/g, 'apdex(duration)'],
-      [/\berror[Rr]ate\b/g, 'percentage(count(*), WHERE error IS TRUE)'],
-      [/\bthroughput\b/g, 'rate(count(*), 1 minute)'],
+      [/(?<![.\w])average[Dd]uration\b/g, 'average(duration)'],
+      [/(?<![.\w])average[Rr]esponse[Tt]ime\b/g, 'average(duration)'],
+      [/(?<![.\w])max[Dd]uration\b/g, 'max(duration)'],
+      [/(?<![.\w])min[Dd]uration\b/g, 'min(duration)'],
+      [/(?<![.\w])median[Dd]uration\b/g, 'median(duration)'],
+      [/(?<![.\w])apdex[Ss]core\b/g, 'apdex(duration)'],
+      [/(?<![.\w])apdex[Pp]erf[Zz]one\b/g, 'apdex(duration)'],
+      [/(?<![.\w])error[Rr]ate\b/g, 'percentage(count(*), WHERE error IS TRUE)'],
+      [/(?<![.\w])throughput\b/g, 'rate(count(*), 1 minute)'],
     ];
 
     for (const [pattern, replacement] of shorthands) {

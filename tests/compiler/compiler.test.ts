@@ -2416,4 +2416,67 @@ describe('NRQLCompiler', () => {
       expect(result.dql).toContain('duration');
     });
   });
+
+  // =========================================================================
+  // Issue gh #13 (Dynatrace-NewRelic): golden-metric alias expansion bug.
+  //
+  // Pre-lex shorthand expansion used `\b<name>\b` which matched the trailing
+  // `throughput` in `newrelic.goldenmetrics.apm.application.throughput`
+  // because `\b` treats `.` → `t` as a word boundary. The fix uses
+  // `(?<![.\w])<name>\b` so the shorthand is only expanded when the name
+  // appears as a standalone token.
+  // =========================================================================
+  describe('Shorthand lookbehind regression (gh #13)', () => {
+    it('preserves `throughput` at end of a dotted metric identifier', () => {
+      const result = compiler.compile(
+        "SELECT average(`newrelic.goldenmetrics.apm.application.throughput`) "
+        + "FROM Metric FACET entity.guid, appName"
+      );
+      expect(result.success).toBe(true);
+      expect(result.dql).not.toContain('rate(count(*), 1 minute)');
+      expect(result.dql).not.toContain('count(*)');
+      expect(result.dql).toContain('newrelic.goldenmetrics.apm.application.throughput');
+    });
+
+    it('preserves `errorRate` at end of a dotted metric identifier', () => {
+      const result = compiler.compile(
+        "SELECT average(`newrelic.goldenmetrics.apm.application.errorRate`) FROM Metric"
+      );
+      expect(result.success).toBe(true);
+      expect(result.dql).not.toContain('percentage(count(*)');
+      expect(result.dql).toContain('newrelic.goldenmetrics.apm.application.errorRate');
+    });
+
+    it('preserves `apdexScore` at end of a dotted metric identifier', () => {
+      const result = compiler.compile(
+        "SELECT latest(`some.vendor.apdexScore`) FROM Metric"
+      );
+      expect(result.success).toBe(true);
+      expect(result.dql).not.toContain('apdex(duration)');
+      expect(result.dql).toContain('some.vendor.apdexScore');
+    });
+
+    it('still expands bare `throughput`', () => {
+      const result = compiler.compile("SELECT throughput FROM Transaction");
+      expect(result.success).toBe(true);
+      expect(result.dql).not.toContain('throughput');
+    });
+
+    it('still expands bare `errorRate`', () => {
+      const result = compiler.compile("SELECT errorRate FROM Transaction");
+      expect(result.success).toBe(true);
+      expect(result.dql).not.toContain('errorRate');
+    });
+
+    it('emits a well-formed metric identifier (no function call leak)', () => {
+      const result = compiler.compile(
+        "SELECT average(`newrelic.goldenmetrics.apm.application.throughput`) FROM Metric"
+      );
+      expect(result.success).toBe(true);
+      const m = result.dql.match(/avg\(([^)]+)\)/);
+      expect(m).not.toBeNull();
+      const metricIdent = (m![1] as string).trim();
+      expect(metricIdent).toMatch(/^[a-zA-Z][\w.]*$/);
+    });
+  });
 });
