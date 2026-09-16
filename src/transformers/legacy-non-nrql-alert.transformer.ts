@@ -1,8 +1,8 @@
 /**
  * Legacy Non-NRQL Alert Condition Transformer (Gen2-only fallback).
  *
- * The default `NonNrqlAlertConditionTransformer` wires Metric Events
- * into a Gen3 Workflow via `nr-migrated` entity tags. For tenants
+ * The default `NonNrqlAlertConditionTransformer` emits Davis anomaly
+ * detectors (`builtin:davis.anomaly-detectors`) + a Gen3 Workflow. For tenants
  * that have not adopted Workflows yet, this legacy variant emits a
  * classic Alerting Profile + Metric Event pair — the pre-Gen3
  * fan-out model — with no Workflow dependency.

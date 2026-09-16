@@ -9,6 +9,39 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Accumulating toward **v2.0.0**. The branch now carries every Phase 01–16 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports), and Phase 16 parity completion (canary rollout, NRDB archive helper, 232-entry extended metric map, OAuth2 platform-token provider + split DT client stack). Test count 838 → 1562 (+724). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
 
+### Changed (Gen3 anomaly detectors)
+- **BREAKING (output shape):** `AlertTransformer` and `NonNrqlAlertConditionTransformer`
+  now emit `builtin:davis.anomaly-detectors` (schema v1.0.14) instead of Gen2
+  `builtin:anomaly-detection.metric-events` with `dt.entity.*` entity filters
+  (parity with NewRelic-to-Dynatrace-Migration-Utilities PRs #16–22).
+  - Detector value: `{enabled, title, description, source: "newrelic-migration",
+    executionSettings{actor, queryOffset}, analyzer{name, input[{key,value}]},
+    eventTemplate{properties[{key,value}]}}`; static-threshold analyzer inputs
+    `query/threshold/alertCondition/alertOnMissingData/violatingSamples/slidingWindow/dealertingSamples`.
+  - `analyzer.input[query]` is DQL: NRQL goes through `NRQLCompiler`
+    (HIGH/MEDIUM → DQL; empty → `timeseries count()`; LOW/failure →
+    `// UNCONVERTED NRQL: <orig>` + `timeseries count()` and a warning).
+  - Non-NRQL detectors split by `dt.smartscape.*` (service/host/process/frontend);
+    synthetic and mobile have no Smartscape type, so no split + warning. NR entity
+    GUIDs move to `eventTemplate.properties[source.entityGuids]`.
+  - Workflows use a `davis_event` trigger on detector ids and dict-keyed `tasks`
+    (Automation API requirement). `AlertTransformer` turns
+    `notificationChannels` into tasks, adds a disabled `placeholder_action` when
+    there are none, and fans out one workflow per severity for non-uniform
+    `severityRules` delays.
+  - Result data renamed: `AlertTransformData.metricEvents` → `anomalyDetectors`
+    (+ new `workflows`; `workflow` is now `DTDavisEventWorkflow`);
+    `NonNrqlAlertTransformData.metricEvent` → `anomalyDetectors[]` + `workflows[]`.
+    `DTMetricEvent` stays exported but is deprecated. `LegacyAlertTransformer` /
+    `LegacyNonNrqlAlertConditionTransformer` output is unchanged.
+
+### Added (Gen3 anomaly detectors)
+- `detector-utils.ts` (`nrqlToAnalyzerQuery`, `DAVIS_ANALYZERS`, `DTAnomalyDetector`)
+  and `workflow-utils.ts` (`tasksListToDict`, `DTDavisEventWorkflow`), ports of
+  Python `_detector_utils.py` / `_workflow_utils.py`.
+- `tests/transformers/gen3-anomaly-detector-schema.test.ts`: required/forbidden
+  fields, analyzer query is DQL not NRQL, no `dt.entity`, serialized POST body.
+
 ### Changed (Smartscape-first DQL)
 - **Smartscape-first DQL emission** (parity with NewRelic-to-Dynatrace-Migration-Utilities).
   Classic `dt.entity.*` is deprecated per Dynatrace's `dt-dql-essentials` / `dt-migration` skills.

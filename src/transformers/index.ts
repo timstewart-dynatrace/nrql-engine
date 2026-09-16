@@ -53,7 +53,20 @@ export type {
   DTWorkflow,
   DTWorkflowTaskRef,
   DTMetricEvent,
+  NRSeverityRule,
+  ResolvedThreshold,
 } from './alert.transformer.js';
+export { resolveThreshold, placeholderTask } from './alert.transformer.js';
+
+// Gen3 Davis anomaly detector + workflow helpers (shared by alert transformers)
+export {
+  DAVIS_ANALYZERS,
+  DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+  nrqlToAnalyzerQuery,
+} from './detector-utils.js';
+export type { DTAnomalyDetector, DTKeyValue, DavisAnalyzerName } from './detector-utils.js';
+export { tasksListToDict } from './workflow-utils.js';
+export type { DTDavisEventWorkflow, DTWorkflowTaskDefinition } from './workflow-utils.js';
 
 // Notification transformer (Gen3 default + Gen2 legacy opt-in)
 export {

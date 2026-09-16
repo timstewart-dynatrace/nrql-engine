@@ -1,22 +1,37 @@
 /**
  * Non-NRQL Alert Condition Transformer — Translates NR alert conditions
  * whose signal is NOT a NRQL query (APM, Infrastructure, Synthetic,
- * Browser, Mobile, External Service) to Dynatrace Gen3 Metric Events
- * wired to the policy's companion Workflow via `nr-migrated` entity
- * tags (same convention as AlertTransformer).
+ * Browser, Mobile, External Service) to Dynatrace Gen3 Davis anomaly
+ * detectors (`builtin:davis.anomaly-detectors`, v1.0.14 shape) plus a
+ * paired Automation Workflow whose `davis_event` trigger targets the
+ * detector id — same shape as `AlertTransformer`.
  *
  * Mapping strategy: each condition carries a builtin metric name; the
- * transformer maps it through a per-product lookup table to a DT
- * `builtin:*` metric key and builds a STATIC_THRESHOLD monitoring
- * strategy from the NR term(s). Unmapped metrics emit a warning and
- * produce a disabled placeholder event (so operators are explicitly
- * prompted to finish the mapping).
+ * transformer maps it through a per-product lookup table to a DT metric
+ * key, builds a `timeseries` DQL query split by the Smartscape entity
+ * dimension (`dt.smartscape.*`) where one exists, and emits a static
+ * threshold analyzer from the NR term(s). Unmapped metrics emit a warning
+ * and produce a disabled placeholder detector.
+ *
+ * Mirrors Python `transformers/non_nrql_alert_transformer.py` in
+ * NewRelic-to-Dynatrace-Migration-Utilities (output shape; the TS input
+ * contract is per-metric and richer than the Python per-type table).
  */
 
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
-import type { DTMetricEvent, NRAlertTerm } from './alert.transformer.js';
-import { OPERATOR_MAP } from './mapping-rules.js';
+import { placeholderTask, resolveThreshold, type NRAlertTerm } from './alert.transformer.js';
+import {
+  DAVIS_ANALYZERS,
+  DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+  DETECTOR_SOURCE,
+  PLACEHOLDER_DQL,
+  staticThresholdInput,
+  type DTAnomalyDetector,
+  type DTKeyValue,
+} from './detector-utils.js';
+import { tasksListToDict, type DTDavisEventWorkflow } from './workflow-utils.js';
+import { smartscapeField } from '../validators/smartscape-map.js';
 
 // ---------------------------------------------------------------------------
 // Input
@@ -90,15 +105,20 @@ const METRIC_MAP: Record<NRNonNrqlConditionType, Record<string, string>> = {
   },
 };
 
-const DEFAULT_ENTITY_DIMENSION: Record<NRNonNrqlConditionType, string> = {
-  APM: 'dt.entity.service',
-  APM_APP: 'dt.entity.service',
-  INFRA_METRIC: 'dt.entity.host',
-  INFRA_PROCESS: 'dt.entity.process_group_instance',
-  SYNTHETIC: 'dt.entity.synthetic_test',
-  BROWSER: 'dt.entity.application',
-  MOBILE: 'dt.entity.mobile_application',
-  EXTERNAL_SERVICE: 'dt.entity.service',
+/**
+ * Classic entity type per product; resolved to `dt.smartscape.*` via the
+ * shared Smartscape map. Types with no Smartscape equivalent
+ * (synthetic_test, mobile_application) yield no split dimension.
+ */
+const CLASSIC_ENTITY_TYPE: Record<NRNonNrqlConditionType, string> = {
+  APM: 'service',
+  APM_APP: 'service',
+  INFRA_METRIC: 'host',
+  INFRA_PROCESS: 'process_group_instance',
+  SYNTHETIC: 'synthetic_test',
+  BROWSER: 'application',
+  MOBILE: 'mobile_application',
+  EXTERNAL_SERVICE: 'service',
 };
 
 // ---------------------------------------------------------------------------
@@ -106,48 +126,10 @@ const DEFAULT_ENTITY_DIMENSION: Record<NRNonNrqlConditionType, string> = {
 // ---------------------------------------------------------------------------
 
 export interface NonNrqlAlertTransformData {
-  readonly metricEvent: DTMetricEvent;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function migrationTag(policyName: string | undefined): string {
-  return (
-    (policyName ?? 'migrated-policy')
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'migrated-policy'
-  );
-}
-
-function buildStrategy(terms: readonly NRAlertTerm[]): DTMetricEvent['monitoringStrategy'] {
-  const strategy: Record<string, unknown> = {
-    type: 'STATIC_THRESHOLD',
-    alertCondition: 'ABOVE',
-    alertingOnMissingData: false,
-    dealingWithGapsStrategy: 'DROP_DATA',
-    samples: 3,
-    violatingSamples: 3,
-    threshold: 0,
-    unit: 'UNSPECIFIED',
-  };
-  if (terms.length === 0) return strategy;
-
-  const critical = terms.find((t) => (t.priority ?? 'critical').toLowerCase() === 'critical');
-  const warning = terms.find((t) => (t.priority ?? '').toLowerCase() === 'warning');
-  const active = critical ?? warning ?? terms[0]!;
-
-  strategy['alertCondition'] = OPERATOR_MAP[active.operator ?? 'ABOVE'] ?? 'ABOVE';
-  strategy['threshold'] = active.threshold ?? 0;
-  const samples = Math.max(1, Math.floor((active.thresholdDuration ?? 300) / 60));
-  strategy['samples'] = samples;
-  strategy['violatingSamples'] = samples;
-  if ((active.thresholdOccurrences ?? '').toUpperCase() === 'AT_LEAST_ONCE') {
-    strategy['violatingSamples'] = 1;
-  }
-  return strategy;
+  /** One `builtin:davis.anomaly-detectors` envelope for the condition. */
+  readonly anomalyDetectors: DTAnomalyDetector[];
+  /** Workflow(s) whose `davis_event` trigger targets the detector id. */
+  readonly workflows: DTDavisEventWorkflow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -161,73 +143,106 @@ export class NonNrqlAlertConditionTransformer {
         return failure(['conditionType is required']);
       }
       const warnings: string[] = [];
-      const conditionName = input.name ?? 'Unnamed Condition';
-      const enabled = input.enabled ?? true;
-      const tag = migrationTag(input.policyName);
-      const entityTags = { 'nr-migrated': tag };
-      const metricLookup = METRIC_MAP[input.conditionType];
-      const dimensionKey = DEFAULT_ENTITY_DIMENSION[input.conditionType];
+      const ctype = input.conditionType.toLowerCase();
+      const name = input.name ?? 'Unnamed Condition';
+      const metricKey = input.metric ? METRIC_MAP[input.conditionType]?.[input.metric] : undefined;
+      const classicType = CLASSIC_ENTITY_TYPE[input.conditionType];
+      const dimension = smartscapeField(classicType);
 
-      let metricKey: string | undefined;
-      if (input.metric && metricLookup) {
-        metricKey = metricLookup[input.metric];
-      }
-
-      if (!metricKey) {
+      let query: string;
+      let enabled = input.enabled ?? true;
+      let note: string;
+      if (metricKey) {
+        if (dimension) {
+          query = `timeseries avg(${metricKey}), by:{${dimension}}`;
+        } else {
+          query = `timeseries avg(${metricKey})`;
+          warnings.push(
+            `NR ${input.conditionType} condition '${name}': classic entity type '${classicType}' has no Smartscape equivalent; detector query is not split by entity. Add a raw-dimension split in Dynatrace if per-entity alerting is required.`,
+          );
+        }
+        note = `Migrated from NR ${input.conditionType} condition on metric '${input.metric}'.`;
+      } else {
+        query = `// UNMAPPED NR METRIC: ${input.metric ?? '<unset>'}\n${PLACEHOLDER_DQL}`;
+        enabled = false;
+        note = `Migrated from NR ${input.conditionType} condition. Original metric: '${input.metric ?? ''}'. Map to a DT metric before enabling.`;
         warnings.push(
-          `NR ${input.conditionType} metric '${input.metric ?? '<unset>'}' has no direct Gen3 mapping; emitted a disabled placeholder Metric Event. Finish the metric selection in Dynatrace before enabling.`,
+          `NR ${input.conditionType} metric '${input.metric ?? '<unset>'}' has no direct Gen3 mapping; emitted a disabled placeholder anomaly detector. Finish the metric selection in Dynatrace before enabling.`,
         );
-        return success({
-          metricEvent: {
-            schemaId: 'builtin:anomaly-detection.metric-events',
-            summary: `[Migrated - Manual Config Required] ${conditionName}`,
-            description: `Migrated from NR ${input.conditionType} condition. Original metric: '${input.metric ?? ''}'. Map to a DT builtin:* metric before enabling.`,
-            enabled: false,
-            severity: 'CUSTOM_ALERT',
-            queryDefinition: {
-              type: 'METRIC_KEY',
-              metricKey: 'builtin:tech.generic.placeholder',
-              aggregation: 'AVG',
-              entityFilter: { dimensionKey, conditions: [] },
-              dimensionFilter: [],
-            },
-            monitoringStrategy: buildStrategy(input.terms ?? []),
-            eventTemplate: {
-              title: `[Migrated] ${conditionName}`,
-              description: 'Manual configuration required — unmapped metric.',
-            },
-            entityTags,
-          },
-        }, warnings);
       }
 
-      const entityConditions = (input.entityGuids ?? []).map((guid) => ({
-        type: 'ENTITY_ID',
-        value: guid,
-      }));
+      const { threshold, alertCondition, samples, violating } = resolveThreshold(
+        input.terms ?? [],
+      );
 
-      const metricEvent: DTMetricEvent = {
-        schemaId: 'builtin:anomaly-detection.metric-events',
-        summary: `[Migrated] ${conditionName}`,
-        description: `Migrated from NR ${input.conditionType} condition on metric '${input.metric}'.`,
-        enabled,
-        severity: 'CUSTOM_ALERT',
-        queryDefinition: {
-          type: 'METRIC_KEY',
-          metricKey,
-          aggregation: 'AVG',
-          entityFilter: { dimensionKey, conditions: entityConditions },
-          dimensionFilter: [],
+      const properties: DTKeyValue[] = [
+        { key: 'event.type', value: 'CUSTOM_ALERT' },
+        { key: 'event.name', value: `[Migrated] ${name}` },
+        { key: 'source.condition', value: name },
+        { key: 'source.type', value: ctype },
+        { key: 'migrated.from', value: 'newrelic' },
+      ];
+      if (input.policyName) properties.push({ key: 'source.policy', value: input.policyName });
+      if (input.metric) properties.push({ key: 'source.metric', value: input.metric });
+      if (input.entityGuids && input.entityGuids.length > 0) {
+        properties.push({ key: 'source.entityGuids', value: input.entityGuids.join(',') });
+        warnings.push(
+          `NR entity GUIDs for '${name}' do not carry over to Dynatrace; they are preserved in eventTemplate.properties[source.entityGuids]. Add a dimension filter to the detector query to scope it.`,
+        );
+      }
+
+      const detectorId = `davis-${ctype}-${name}`
+        .toLowerCase()
+        .replace(/[^a-z0-9-]/g, '-')
+        .slice(0, 180);
+
+      const detector: DTAnomalyDetector = {
+        schemaId: DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+        scope: 'environment',
+        detectorId,
+        value: {
+          enabled,
+          title: `[Migrated] ${name}`,
+          description: note,
+          source: DETECTOR_SOURCE,
+          executionSettings: { actor: null, queryOffset: null },
+          analyzer: {
+            name: DAVIS_ANALYZERS.STATIC_THRESHOLD,
+            input: staticThresholdInput({
+              query,
+              threshold,
+              alertCondition,
+              violatingSamples: violating,
+              slidingWindow: samples,
+            }),
+          },
+          eventTemplate: { properties },
         },
-        monitoringStrategy: buildStrategy(input.terms ?? []),
-        eventTemplate: {
-          title: `[Migrated] ${conditionName}`,
-          description: `Source: NR ${input.conditionType} condition on ${input.metric}.`,
-        },
-        entityTags,
       };
 
-      return success({ metricEvent }, warnings);
+      const workflow: DTDavisEventWorkflow = {
+        title: `[Migrated ${ctype}] ${name}`,
+        description: note,
+        private: false,
+        trigger: {
+          event: {
+            active: true,
+            config: {
+              davis_event: {
+                eventType: 'CUSTOM_ALERT',
+                detectorIds: [detectorId],
+                anyEventMatches: true,
+              },
+            },
+          },
+        },
+        // Gen3 Automation API requires `tasks` as a dict keyed by task id.
+        tasks: tasksListToDict([
+          placeholderTask('Attach notifications/actions via NotificationTransformer output.'),
+        ]),
+      };
+
+      return success({ anomalyDetectors: [detector], workflows: [workflow] }, warnings);
     } catch (err) {
       return failure([`Transformation error: ${String(err)}`]);
     }

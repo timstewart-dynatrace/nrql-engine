@@ -249,26 +249,35 @@ describe('DashboardTransformer', () => {
 // AlertTransformer
 // ═════════════════════════════════════════════════════════════════════════════
 
-describe('AlertTransformer (Gen3 Workflow + Metric Events)', () => {
+describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
   let alertTransformer: AlertTransformer;
 
   beforeEach(() => {
     alertTransformer = new AlertTransformer();
   });
 
-  it('should emit Gen3 Workflow even for empty policy', () => {
-    const result = alertTransformer.transform({ name: 'Test Policy', conditions: [] });
+  const inputMap = (d: { value: { analyzer: { input: Array<{ key: string; value: string }> } } }) =>
+    Object.fromEntries(d.value.analyzer.input.map((i) => [i.key, i.value]));
+
+  it('should emit Gen3 Workflow with placeholder task even for empty policy', () => {
+    const result = alertTransformer.transform({ name: 'Test Policy', id: '9', conditions: [] });
     expect(result.success).toBe(true);
-    expect(result.data!.workflow.title).toContain('[Migrated]');
-    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTagsMatch).toBe('all');
-    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTags).toEqual({
-      'nr-migrated': 'test-policy',
+    const wf = result.data!.workflow;
+    expect(wf.title).toBe('[Migrated] Test Policy');
+    expect(wf.description).toContain('(id=9)');
+    expect(wf.trigger.event.config.davis_event).toEqual({
+      eventType: 'CUSTOM_ALERT',
+      detectorIds: [],
+      anyEventMatches: true,
     });
-    expect(result.data!.metricEvents).toEqual([]);
-    expect(result.data!.workflow.tasks).toEqual([]);
+    expect(result.data!.anomalyDetectors).toEqual([]);
+    expect(result.data!.workflows).toHaveLength(1);
+    expect(Array.isArray(wf.tasks)).toBe(false);
+    expect(Object.keys(wf.tasks)).toEqual(['placeholder_action']);
+    expect(wf.tasks['placeholder_action']!.active).toBe(false);
   });
 
-  it('should emit one Gen3 Metric Event per NRQL condition, tagged to match workflow trigger', () => {
+  it('should emit one Davis anomaly detector per NRQL condition, bound to workflow trigger', () => {
     const result = alertTransformer.transform({
       name: 'Test Policy',
       id: '123',
@@ -282,36 +291,139 @@ describe('AlertTransformer (Gen3 Workflow + Metric Events)', () => {
             { priority: 'critical', operator: 'ABOVE', threshold: 10, thresholdDuration: 300 },
           ],
           enabled: true,
+          runbookUrl: 'https://runbooks/err',
         },
       ],
     });
     expect(result.success).toBe(true);
-    expect(result.data!.metricEvents).toHaveLength(1);
-    const event = result.data!.metricEvents[0]!;
-    expect(event.schemaId).toBe('builtin:anomaly-detection.metric-events');
-    expect(event.summary.startsWith('[Migrated]')).toBe(true);
-    expect(event.enabled).toBe(true);
-    expect(event.entityTags).toEqual({ 'nr-migrated': 'test-policy' });
-    expect((event.monitoringStrategy as Record<string, unknown>).threshold).toBe(10);
-    expect((event.monitoringStrategy as Record<string, unknown>).alertCondition).toBe('ABOVE');
-    expect((event.queryDefinition as Record<string, unknown>).metricKey).toBe(
-      'builtin:service.errors.total.rate',
+    expect(result.data!.anomalyDetectors).toHaveLength(1);
+    const det = result.data!.anomalyDetectors[0]!;
+    expect(det.schemaId).toBe('builtin:davis.anomaly-detectors');
+    expect(det.scope).toBe('environment');
+    expect(det.detectorId).toBe('davis-detector-test-policy-high-error-rate');
+    expect(det.value.title).toBe('[Migrated] High Error Rate');
+    expect(det.value.enabled).toBe(true);
+    expect(det.value.analyzer.name).toBe(
+      'dt.statistics.ui.anomaly_detection.StaticThresholdAnomalyDetectionAnalyzer',
     );
+    const inputs = inputMap(det);
+    expect(inputs).toMatchObject({
+      threshold: '10.0',
+      alertCondition: 'ABOVE',
+      alertOnMissingData: 'false',
+      violatingSamples: '5',
+      slidingWindow: '5',
+      dealertingSamples: '5',
+    });
+    const props = Object.fromEntries(det.value.eventTemplate.properties.map((p) => [p.key, p.value]));
+    expect(props).toMatchObject({
+      'event.type': 'CUSTOM_ALERT',
+      'event.name': '[Migrated] High Error Rate',
+      'source.policy': 'Test Policy',
+      'source.condition': 'High Error Rate',
+      'migrated.from': 'newrelic',
+      'original.nrql': 'SELECT count(*) FROM TransactionError',
+      'evaluation.window': '60s',
+      'runbook.url': 'https://runbooks/err',
+    });
+    expect(result.data!.workflow.trigger.event.config.davis_event.detectorIds).toEqual([
+      det.detectorId,
+    ]);
   });
 
-  it('should emit disabled placeholder event for non-NRQL conditions', () => {
+  it('should resolve AT_LEAST_ONCE and warning-term fallback', () => {
+    const result = alertTransformer.transform({
+      name: 'P',
+      conditions: [
+        {
+          name: 'c',
+          nrql: { query: 'SELECT count(*) FROM Transaction' },
+          terms: [
+            {
+              priority: 'warning',
+              operator: 'BELOW',
+              threshold: 2.5,
+              thresholdDuration: 120,
+              thresholdOccurrences: 'AT_LEAST_ONCE',
+            },
+          ],
+        },
+      ],
+    });
+    const inputs = inputMap(result.data!.anomalyDetectors[0]!);
+    expect(inputs['threshold']).toBe('2.5');
+    expect(inputs['alertCondition']).toBe('BELOW');
+    expect(inputs['slidingWindow']).toBe('2');
+    expect(inputs['violatingSamples']).toBe('1');
+  });
+
+  it('should emit disabled detector skeleton for non-NRQL conditions', () => {
     const result = alertTransformer.transform({
       name: 'Test',
       conditions: [{ name: 'APM Cond', conditionType: 'APM' }],
     });
     expect(result.success).toBe(true);
-    expect(result.data!.metricEvents).toHaveLength(1);
-    expect(result.data!.metricEvents[0]!.enabled).toBe(false);
+    expect(result.data!.anomalyDetectors).toHaveLength(1);
+    const det = result.data!.anomalyDetectors[0]!;
+    expect(det.value.enabled).toBe(false);
+    expect(inputMap(det)['query']).toBe('timeseries count()');
+    expect(result.warnings.some((w) => w.includes('manual review'))).toBe(true);
   });
 
-  it('should warn that workflow has no tasks attached', () => {
-    const result = alertTransformer.transform({ name: 'Test Policy', conditions: [] });
-    expect(result.warnings.some((w) => w.includes('no tasks'))).toBe(true);
+  it('should turn notification channels into dict-keyed workflow tasks', () => {
+    const result = alertTransformer.transform({
+      name: 'P',
+      conditions: [],
+      notificationChannels: [
+        { name: 'Ops Mail', type: 'EMAIL', properties: [{ key: 'recipients', value: 'a@b.c' }] },
+        { name: 'Ops Mail', type: 'EMAIL', properties: [{ key: 'recipients', value: 'd@e.f' }] },
+        { name: 'Nope', type: 'CARRIER_PIGEON' },
+      ],
+    });
+    const tasks = result.data!.workflow.tasks;
+    expect(Object.keys(tasks)).toEqual(['ops_mail', 'ops_mail_2']);
+    expect(tasks['ops_mail']!.position).toEqual({ x: 0, y: 1 });
+    expect(tasks['ops_mail_2']!.position).toEqual({ x: 0, y: 2 });
+    expect(result.warnings.some((w) => w.includes('CARRIER_PIGEON'))).toBe(true);
+  });
+
+  it('should fan out one workflow per severity when delays are non-uniform', () => {
+    const result = alertTransformer.transform({
+      name: 'Ladder',
+      conditions: [],
+      severityRules: [
+        { severity: 'AVAILABILITY', delayMinutes: 0 },
+        { severity: 'ERROR', delayMinutes: 5 },
+      ],
+    });
+    const wfs = result.data!.workflows;
+    expect(wfs).toHaveLength(2);
+    expect(result.data!.workflow).toBe(wfs[0]);
+    expect(wfs[1]!.title).toBe('[Migrated] Ladder [ERROR]');
+    expect(wfs[1]!.migratedFrom).toEqual({
+      type: 'newrelic.severity_ladder',
+      severity: 'ERROR',
+      delayMinutes: 5,
+    });
+    expect(wfs[1]!.trigger.event.config.davis_event.eventProperties).toEqual({
+      'event.severity': 'ERROR',
+    });
+    expect(Object.keys(wfs[1]!.tasks)[0]).toBe('delay_5m');
+    expect(wfs[0]!.tasks['delay_0m']).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes('severity-ladder'))).toBe(true);
+  });
+
+  it('should emit a single workflow when severity delays are uniform', () => {
+    const result = alertTransformer.transform({
+      name: 'Flat',
+      conditions: [],
+      severityRules: [
+        { severity: 'AVAILABILITY', delayMinutes: 3 },
+        { severity: 'ERROR', delayMinutes: 3 },
+      ],
+    });
+    expect(result.data!.workflows).toHaveLength(1);
+    expect(result.data!.workflow.migratedFrom).toBeUndefined();
   });
 
   it('should transform multiple policies', () => {

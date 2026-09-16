@@ -110,7 +110,7 @@ describe('looksMigrated — core shapes', () => {
 });
 
 describe('looksMigrated — detects real transformer outputs', () => {
-  it('AlertTransformer Workflow + MetricEvent', () => {
+  it('AlertTransformer Workflow + anomaly detector', () => {
     const result = new AlertTransformer().transform({
       name: 'Prod',
       conditions: [
@@ -123,7 +123,7 @@ describe('looksMigrated — detects real transformer outputs', () => {
       ],
     });
     expect(looksMigrated(result.data!.workflow)).toBe(true);
-    expect(looksMigrated(result.data!.metricEvents[0]!)).toBe(true);
+    expect(looksMigrated(result.data!.anomalyDetectors[0]!.value)).toBe(true);
   });
 
   it('BrowserRUMTransformer app detection', () => {
