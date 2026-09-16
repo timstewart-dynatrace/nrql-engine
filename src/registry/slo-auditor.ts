@@ -170,7 +170,7 @@ export class SLOAuditor {
       const key = (match[1] ?? '').trim();
       // Filter out DQL keywords and known non-metrics
       const nonMetrics = new Set(['duration', 'timestamp', 'start_time', 'true', 'false', 'null']);
-      if (!nonMetrics.has(key) && !key.startsWith('dt.entity.') && key.includes('.')) {
+      if (!nonMetrics.has(key) && !key.startsWith('dt.entity.') && !key.startsWith('dt.smartscape.') && key.includes('.')) {
         metrics.push(key);
       }
     }

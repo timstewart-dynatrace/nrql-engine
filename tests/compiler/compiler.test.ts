@@ -642,7 +642,8 @@ describe('NRQLCompiler', () => {
       expect(result.success).toBe(true);
       expect(result.dql).toContain('fetch spans');
       expect(result.dql).toContain('makeTimeseries');
-      expect(result.dql).toContain('dt.entity.name');
+      expect(result.dql).toContain('service.name == "my-api"');
+      expect(result.dql).not.toContain('dt.entity');
     });
 
     it('should handle FROM Log SELECT', () => {
@@ -2239,7 +2240,10 @@ describe('NRQLCompiler', () => {
       const result = compiler.compile("SELECT latest(isReady) FROM K8sPodSample WHERE clusterName = 'prod'");
       assertValidDql(result);
       const code = codeLines(result.dql);
-      expect(code).toContain('entity');
+      expect(code.startsWith('smartscapeNodes K8S_DEPLOYMENT')).toBe(true);
+      expect(code).toContain('readyReplicas');
+      expect(code).toContain('k8s.cluster.name == "prod"');
+      expect(code).not.toContain('dt.entity');
       expect(code).not.toContain('timeseries');
     });
   });
@@ -2269,7 +2273,8 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE entity.name = 'my-svc'"
       );
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('dt.entity.name');
+      expect(codeLines(result.dql)).toContain('service.name');
+      expect(codeLines(result.dql)).not.toContain('dt.entity');
     });
 
     it('should handle percentage simple (no nested agg)', () => {

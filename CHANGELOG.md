@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Accumulating toward **v2.0.0**. The branch now carries every Phase 01–16 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports), and Phase 16 parity completion (canary rollout, NRDB archive helper, 232-entry extended metric map, OAuth2 platform-token provider + split DT client stack). Test count 838 → 1562 (+724). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
 
+### Changed (Smartscape-first DQL)
+- **Smartscape-first DQL emission** (parity with NewRelic-to-Dynatrace-Migration-Utilities).
+  Classic `dt.entity.*` is deprecated per Dynatrace's `dt-dql-essentials` / `dt-migration` skills.
+  - `entityName` / `entity.name` now emit a raw dimension by context: `service.name`
+    (spans/logs), `host.name` (System/Process/Network/StorageSample), `dt.service.name`
+    (Metric), `k8s.workload.name` + warning (K8s samples). Previously `dt.entity.name`,
+    which is not a Grail field.
+  - `entityGuid` -> `dt.smartscape.service`.
+  - K8s `isReady` / `status` / `isScheduled` -> `smartscapeNodes` + `parse k8s.object`
+    instead of `fetch dt.entity.cloud_application[_instance]`.
+  - `SHOW EVENT TYPES` hint uses `describe` instead of `fetch dt.entity.type`.
+  - Fixer: `FROM SystemSample` subqueries -> `lookup [smartscapeNodes HOST ...]`.
+
+### Added (Smartscape-first DQL)
+- `DQLFixer.fixClassicEntityReferences` (fixer rule #25): rewrites 1:1 classic
+  mappings (`dt.entity.host` -> `dt.smartscape.host`, `fetch dt.entity.X` ->
+  `smartscapeNodes X`, `entityName(x)` -> `getNodeName(x)`, classic IDs ->
+  `toSmartscapeId()`); annotates 1:N types, removed group types,
+  `classicEntitySelector`, and `entityAttr` without rewriting.
+- `src/validators/smartscape-map.ts` — classic -> Smartscape type table.
+- `tests/compiler/smartscape-parity.test.ts`.
+
 ### Added (validation harness)
 
 - **`tests/validation/compile-through.test.ts`** — end-to-end NRQL→DQL compile coverage over the curated corpus.

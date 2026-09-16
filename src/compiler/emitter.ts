@@ -218,9 +218,9 @@ export const FIELD_MAP: Readonly<Record<string, string>> = {
   'http.url': 'http.request.path',
   httpurl: 'http.request.path',
   'error.message': 'error.message',
-  entityguid: 'dt.entity.service',
-  entityname: 'dt.entity.name',
-  'entity.name': 'dt.entity.name',
+  // Smartscape-first: classic dt.entity.* is deprecated.
+  // entityname / entity.name are context-dependent -> see DQLEmitter.ENTITY_NAME_FIELDS.
+  entityguid: 'dt.smartscape.service',
   cpupercent: 'host.cpu.usage',
   memoryusedpercent: 'host.memory.usage',
   diskusedpercent: 'host.disk.usage',
@@ -330,30 +330,57 @@ export class DQLEmitter {
   };
 
   /**
-   * K8s fields that are NOT valid timeseries metrics — they need entity queries instead.
+   * NRQL entity-name fields. Emitted as raw dimensions (dimension-first strategy
+   * from the dt-migration skill), chosen by query context.
+   */
+  static readonly ENTITY_NAME_FIELDS: ReadonlySet<string> = new Set(['entityname', 'entity.name']);
+  static readonly ENTITY_NAME_SPAN_FIELD = 'service.name';
+  static readonly ENTITY_NAME_METRIC_FIELD = 'dt.service.name';
+  static readonly ENTITY_NAME_HOST_FIELD = 'host.name';
+  static readonly ENTITY_NAME_K8S_FIELD = 'k8s.workload.name';
+  /** NR infra samples whose entityName is the host. */
+  static readonly HOST_SAMPLE_TYPES: ReadonlySet<string> = new Set([
+    'systemsample', 'processsample', 'networksample', 'storagesample',
+  ]);
+
+  /** Classic dt.entity.cloud_application maps to several Smartscape workload types. */
+  static readonly K8S_WORKLOAD_NODE_TYPES =
+    'K8S_DEPLOYMENT, K8S_DAEMONSET, K8S_STATEFULSET, K8S_REPLICASET, ' +
+    'K8S_REPLICATIONCONTROLLER, K8S_JOB, K8S_DEPLOYMENTCONFIG';
+
+  /**
+   * K8s fields that are NOT valid timeseries metrics — they need topology queries
+   * instead. Emitted as smartscapeNodes reading the Kubernetes object JSON
+   * (k8s.object). No trailing projection so an appended `| filter` can still
+   * reference any node field.
    */
   static readonly K8S_ENTITY_FIELDS: Readonly<
     Record<string, { dql: string; note: string }>
   > = {
     isready: {
       dql:
-        'fetch dt.entity.cloud_application' +
-        ' | fields entity.name, readyReplicas = readyReplicas, desiredReplicas = desiredReplicas',
-      note:
-        '// isReady -> DT uses entity properties, not timeseries metrics. ' +
-        'Compare readyReplicas vs desiredReplicas for readiness.',
+        'smartscapeNodes K8S_DEPLOYMENT, K8S_STATEFULSET, K8S_REPLICASET' +
+        '\n| parse k8s.object, "JSON:config"' +
+        '\n| fieldsAdd desiredReplicas = config[`spec`][`replicas`], ' +
+        'readyReplicas = config[`status`][`readyReplicas`]',
+      note: '// isReady -> Smartscape workload node; compare readyReplicas vs desiredReplicas.',
     },
     status: {
       dql:
-        'fetch dt.entity.cloud_application' +
-        ' | fields entity.name, status = cloudApplicationStatus',
-      note: '// status -> DT uses entity properties for workload status.',
+        'smartscapeNodes ' +
+        DQLEmitter.K8S_WORKLOAD_NODE_TYPES +
+        '\n| parse k8s.object, "JSON:config"' +
+        '\n| fieldsAdd desiredReplicas = config[`spec`][`replicas`], ' +
+        'readyReplicas = config[`status`][`readyReplicas`], ' +
+        'availableReplicas = config[`status`][`availableReplicas`]',
+      note: '// status -> Smartscape workload node; status read from k8s.object replica counts.',
     },
     isscheduled: {
       dql:
-        'fetch dt.entity.cloud_application_instance' +
-        ' | fields entity.name, phase = cloudApplicationInstancePhase',
-      note: '// isScheduled -> DT uses entity phase property, not timeseries metrics.',
+        'smartscapeNodes K8S_POD' +
+        '\n| parse k8s.object, "JSON:config"' +
+        '\n| fieldsAdd phase = config[`status`][`phase`]',
+      note: '// isScheduled -> Smartscape K8S_POD phase (Pending = not scheduled).',
     },
   };
 
@@ -383,6 +410,7 @@ export class DQLEmitter {
   private histogramBinExpr: string | undefined = undefined;
   private funnelSteps: Array<[string, string]> = [];
   private queryClass = 'spans';
+  private fromType = '';
   private currentK8sContext = false;
 
   constructor(
@@ -411,12 +439,12 @@ export class DQLEmitter {
     // Handle SHOW EVENT TYPES
     if (query.fromClause === '__SHOW_EVENT_TYPES__') {
       this.warnings.push(
-        'SHOW EVENT TYPES -> use DT Schema browser or: fetch dt.entity.type',
+        'SHOW EVENT TYPES -> use DT Schema browser or the DQL describe command',
       );
       return (
         '// SHOW EVENT TYPES has no direct DQL equivalent\n' +
         '// In Dynatrace, use the Schema browser in Notebooks/Dashboards\n' +
-        '// or query: fetch dt.entity.type | fields entity.type | dedup entity.type'
+        '// or query: describe logs  (also: spans, events, bizevents)'
       );
     }
 
@@ -426,6 +454,7 @@ export class DQLEmitter {
       .replace(/-/g, '');
     const queryClass = this.classifyQuery(fromType);
     this.queryClass = queryClass;
+    this.fromType = fromType;
 
     let dql: string;
 
@@ -2626,6 +2655,15 @@ export class DQLEmitter {
       }
     }
 
+    // Entity name: raw dimension, chosen by query context
+    if (
+      DQLEmitter.ENTITY_NAME_FIELDS.has(low) &&
+      this.fieldMap[name] === undefined &&
+      this.fieldMap[low] === undefined
+    ) {
+      return this.entityNameField();
+    }
+
     // Check exact match first
     const exact = this.fieldMap[name];
     if (exact) return exact;
@@ -2634,6 +2672,22 @@ export class DQLEmitter {
     if (lowMatch) return lowMatch;
     // Pass through unmapped fields
     return name;
+  }
+
+  /** Raw dimension for NRQL entityName / entity.name in the current query context. */
+  private entityNameField(): string {
+    if (DQLEmitter.HOST_SAMPLE_TYPES.has(this.fromType)) {
+      return DQLEmitter.ENTITY_NAME_HOST_FIELD;
+    }
+    if (this.queryClass.startsWith('K8S_')) {
+      const warning =
+        'entityName in a K8s sample mapped to k8s.workload.name; ' +
+        'use k8s.pod.name / k8s.node.name if the NR entity was a pod or node';
+      if (!this.warnings.includes(warning)) this.warnings.push(warning);
+      return DQLEmitter.ENTITY_NAME_K8S_FIELD;
+    }
+    if (this.queryClass === 'METRIC') return DQLEmitter.ENTITY_NAME_METRIC_FIELD;
+    return DQLEmitter.ENTITY_NAME_SPAN_FIELD;
   }
 
   // -----------------------------------------------------------------------
