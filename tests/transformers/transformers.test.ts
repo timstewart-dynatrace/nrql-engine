@@ -949,10 +949,13 @@ describe('SLOTransformer', () => {
       expect(result.success).toBe(true);
       const slo = result.data!;
       expect(slo.name).toBe('[Migrated] Availability SLO');
-      expect(slo.target).toBe(99.9);
-      expect(slo.warning).toBe(98.9); // target - 1.0
-      expect(slo.enabled).toBe(true);
-      expect(slo.timeframe).toBe('-7d');
+      expect(slo.criteria[0]!.target).toBe(99.9);
+      expect(slo.criteria[0]!.warning).toBe(99.95); // Platform SLO: warning > target
+      expect(slo.criteria[0]!.timeframeFrom).toBe('now-7d');
+      expect(slo.criteria[0]!.timeframeTo).toBe('now');
+      expect(slo.customSli.indicator).toContain('by: { dt.smartscape.service }');
+      expect(JSON.stringify(slo)).not.toContain('builtin:monitoring.slo');
+      expect(JSON.stringify(slo)).not.toContain('dt.entity');
     });
 
     it('should fail when no objectives', () => {
@@ -986,34 +989,22 @@ describe('SLOTransformer', () => {
     });
   });
 
-  describe('sanitize metric name', () => {
-    it('should sanitize name', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = (sloTransformer as any).sanitizeMetricName('My SLO Test!');
-      expect(result).toBe('slo.migrated.my_slo_test');
-    });
-
-    it('should handle special chars', () => {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const result = (sloTransformer as any).sanitizeMetricName('SLO (prod) - v2');
-      expect(result).toBe('slo.migrated.slo_prod__v2');
-    });
-  });
-
   describe('build timeframe', () => {
     it('should build day timeframe', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((sloTransformer as any).buildTimeframe(7, 'DAY')).toBe('-7d');
+      expect((sloTransformer as any).buildTimeframe(7, 'DAY')).toBe('now-7d');
     });
 
     it('should build week timeframe', () => {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((sloTransformer as any).buildTimeframe(4, 'WEEK')).toBe('-4w');
+      expect((sloTransformer as any).buildTimeframe(4, 'WEEK')).toBe('now-4w');
     });
 
-    it('should build month timeframe', () => {
+    it('should approximate month timeframe as days with a warning', () => {
+      const warnings: string[] = [];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      expect((sloTransformer as any).buildTimeframe(1, 'MONTH')).toBe('-1M');
+      expect((sloTransformer as any).buildTimeframe(1, 'MONTH', warnings)).toBe('now-30d');
+      expect(warnings.some((w) => w.includes('30 days'))).toBe(true);
     });
   });
 
@@ -1032,8 +1023,8 @@ describe('SLOTransformer', () => {
         timeWindow: { rolling: { count: 30, unit: 'DAY' } },
       });
       expect(result.success).toBe(true);
-      expect(result.data!.timeframe).toBe('-30d');
-      expect(result.data!.target).toBe(99.5);
+      expect(result.data!.criteria[0]!.timeframeFrom).toBe('now-30d');
+      expect(result.data!.criteria[0]!.target).toBe(99.5);
       expect(result.data!.name).toContain('[Migrated SLv3]');
     });
 
@@ -1043,7 +1034,7 @@ describe('SLOTransformer', () => {
         sli: { nrql: 'q' },
         timeWindow: { calendarAligned: { unit: 'MONTH' } },
       });
-      expect(result.data!.timeframe).toBe('-1M@M');
+      expect(result.data!.criteria[0]!.timeframeFrom).toBe('now-1M@M');
     });
 
     it('should combine nrql + badEventsNrql when provided', () => {
@@ -1055,16 +1046,28 @@ describe('SLOTransformer', () => {
         },
       });
       expect(result.success).toBe(true);
-      expect(result.data!.metricExpression).toContain('builtin:service.errors');
+      expect(result.data!.customSli.indicator).toContain('dt.service.request.failure_count');
     });
 
-    it('should include entityGuid filter when supplied', () => {
+    it('should scope the indicator to a DT SERVICE id when supplied', () => {
       const result = sloTransformer.transformV3({
         name: 'x',
         sli: { nrql: 'q' },
-        entityGuid: 'SERVICE-123',
+        entityGuid: 'SERVICE-123ABC',
       });
-      expect(result.data!.filter).toBe('entityId("SERVICE-123")');
+      expect(result.data!.customSli.indicator).toContain(
+        'dt.smartscape.service == toSmartscapeId("SERVICE-123ABC")',
+      );
+    });
+
+    it('should warn when entityGuid is not a DT SERVICE id', () => {
+      const result = sloTransformer.transformV3({
+        name: 'x',
+        sli: { nrql: 'q' },
+        entityGuid: 'MXxBUE18QVBQTElDQVRJT058MQ',
+      });
+      expect(result.data!.customSli.indicator).not.toContain('toSmartscapeId');
+      expect(result.warnings.some((w) => w.includes('not a Dynatrace SERVICE id'))).toBe(true);
     });
 
     it('should surface v3-specific review warning', () => {
