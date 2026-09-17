@@ -30,6 +30,7 @@ import {
   DETECTOR_SOURCE,
   nrqlToAnalyzerQuery,
   staticThresholdInput,
+  alertConditionFor,
   type DTAnomalyDetector,
   type DTKeyValue,
 } from './detector-utils.js';
@@ -279,7 +280,10 @@ export interface ResolvedThreshold {
  * it to Davis static-threshold analyzer inputs. Mirrors Python
  * `AlertTransformer._resolve_threshold`.
  */
-export function resolveThreshold(terms: readonly NRAlertTerm[]): ResolvedThreshold {
+export function resolveThreshold(
+  terms: readonly NRAlertTerm[],
+  warnings?: string[],
+): ResolvedThreshold {
   if (terms.length === 0) {
     return { threshold: 0, alertCondition: 'ABOVE', samples: 3, violating: 3 };
   }
@@ -287,7 +291,8 @@ export function resolveThreshold(terms: readonly NRAlertTerm[]): ResolvedThresho
   const warning = terms.find((t) => (t.priority ?? '').toLowerCase() === 'warning');
   const active = critical ?? warning ?? terms[0]!;
 
-  const alertCondition = OPERATOR_MAP[active.operator ?? 'ABOVE'] ?? 'ABOVE';
+  // D23: the analyzer only accepts ABOVE / BELOW (verified live).
+  const alertCondition = alertConditionFor(active.operator ?? 'ABOVE', 'ABOVE', warnings);
   const threshold = Number(active.threshold ?? 0);
   const samples = Math.max(1, Math.floor((active.thresholdDuration ?? 300) / 60));
   const violating = active.thresholdOccurrences === 'AT_LEAST_ONCE' ? 1 : samples;
@@ -369,6 +374,7 @@ export class AlertTransformer {
     const aggregationWindow = condition.signal?.aggregationWindow ?? 60;
     const { threshold, alertCondition, samples, violating } = resolveThreshold(
       condition.terms ?? [],
+      warnings,
     );
 
     // analyzer.input[query] is server-validated as DQL — never pass raw NRQL.

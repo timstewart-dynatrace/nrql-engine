@@ -462,3 +462,21 @@ describe('Detector inputs accepted by the Settings validator (D17–D21)', () =>
     expect(addSplitDimension(split, '')).toBe(split);
   });
 });
+
+
+describe('D23/D24 — live-rejected enums and action ids', () => {
+  it('maps NRQL alert operators to ABOVE / BELOW only', async () => {
+    const { resolveThreshold } = await import('../../src/transformers/alert.transformer.js');
+    const cases: Array<[string, string]> = [
+      ['ABOVE_OR_EQUALS', 'ABOVE'],
+      ['BELOW_OR_EQUALS', 'BELOW'],
+      ['EQUALS', 'ABOVE'],
+    ];
+    for (const [op, expected] of cases) {
+      const warnings: string[] = [];
+      const r = resolveThreshold([{ threshold: 1, operator: op, priority: 'critical' } as never], warnings);
+      expect(r.alertCondition).toBe(expected);
+      expect(warnings.length).toBeGreaterThan(0);
+    }
+  });
+});

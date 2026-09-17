@@ -139,7 +139,7 @@ export interface NRAIOpsWorkflowV2Input {
 
 export interface DTWorkflowEnrichment {
   readonly name: string;
-  readonly action: 'dynatrace.automations:run-query';
+  readonly action: 'dynatrace.automations:execute-dql-query';
   readonly description: string;
   readonly active: boolean;
   readonly input: {
@@ -198,7 +198,7 @@ export class AIOpsTransformer {
         const compiled = compileEnrichmentNrql(enrich.nrql);
         tasks.push({
           name: enrich.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-          action: 'dynatrace.automations:run-query',
+          action: 'dynatrace.automations:execute-dql-query',
           description: `[Migrated enrichment] ${enrich.name} (confidence: ${compiled.confidence})`,
           active: true,
           input: {
@@ -291,13 +291,13 @@ export class AIOpsTransformer {
         );
       }
 
-      // Enrichments → run-query tasks with compiled DQL via NRQLCompiler.
+      // Enrichments → execute-dql-query tasks with compiled DQL via NRQLCompiler.
       const tasks: DTWorkflowEnrichment[] = [];
       for (const e of input.enrichments?.nrqlEnrichments ?? []) {
         const compiled = compileEnrichmentNrql(e.query);
         tasks.push({
           name: e.name.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
-          action: 'dynatrace.automations:run-query',
+          action: 'dynatrace.automations:execute-dql-query',
           description: `[Migrated v2 enrichment] ${e.name} (confidence: ${compiled.confidence})`,
           active: true,
           input: {

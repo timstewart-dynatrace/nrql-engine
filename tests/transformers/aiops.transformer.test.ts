@@ -56,7 +56,7 @@ describe('AIOpsTransformer', () => {
     const tasks = Object.values(result.data!.workflow.tasks);
     expect(Array.isArray(result.data!.workflow.tasks)).toBe(false);
     expect(Object.keys(result.data!.workflow.tasks)).toEqual(['error_context']);
-    expect(tasks[0]!.action).toBe('dynatrace.automations:run-query');
+    expect(tasks[0]!.action).toBe('dynatrace.automations:execute-dql-query');
     expect(tasks[0]!.input.query).toContain('fetch spans');
     expect(tasks[0]!.input.query).not.toContain('TODO');
     expect(tasks[0]!.description).toMatch(/confidence: (HIGH|MEDIUM)/);
