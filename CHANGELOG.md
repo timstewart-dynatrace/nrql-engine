@@ -9,6 +9,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 Accumulating toward **v2.0.0**. The branch now carries every Phase 01–16 deliverable: 46 Gen3 transformers, 12 Legacy opt-in / Gen2-only classes, Phase 19 compiler uplift, preflight probes, PCRE→DPL + rrule + SCIM filter + Monaco YAML + OTel env helpers, Phase 15 safety + observability cluster (coded warnings, drift audit, orphan diff, HTTP retry, provenance stamping, conversion reports), and Phase 16 parity completion (canary rollout, NRDB archive helper, 232-entry extended metric map, OAuth2 platform-token provider + split DT client stack). Test count 838 → 1562 (+724). The release contains BREAKING default-output changes for four transformers (`AlertTransformer`, `NotificationTransformer`, `TagTransformer`, `WorkloadTransformer`) — callers needing the previous Gen2 shapes must switch to the paired `Legacy*` classes or call `createTransformer(kind, { legacy: true })`.
 
+### Fixed (live-validated Gen3 defects)
+Port of NewRelic-to-Dynatrace-Migration-Utilities `fix/live-validated-defects`
+(D1–D22), found against a live Gen3 tenant (`dtctl exec analyzer`,
+`dtctl create settings --validate-only`, captured dtctl requests).
+
+- **BREAKING (compiler output):** `appName` / `entityName` / `entity.name` emit
+  `dt.service.name` in span and Metric contexts (OneAgent spans never carry
+  `service.name`); logs keep `service.name` (D10). NR `error` on spans emits
+  `request.is_failed`; the TransactionError auto-filter is
+  `| filter request.is_failed == true`; `error IS NULL` / `IS NOT NULL` →
+  `request.is_failed != true` / `== true` (D12). Mixed AND/OR conditions are
+  parenthesized (`(a or b) and c`) — previously precedence was silently changed (D13).
+- **BREAKING (detector output):** analyzer queries are always timeseries —
+  new `ensureTimeseries()` rewrites `summarize` → `makeTimeseries` and splits
+  arithmetic over aggregations into `nr_aggN` series (D1). The fallback is the
+  inert `FALLBACK_QUERY` (`timeseries unconverted = count(dt.host.cpu.usage), filter:{…}`);
+  `timeseries count()` was invalid DQL (D11; `PLACEHOLDER_DQL` is a deprecated alias).
+  Classic `builtin:` metric keys map to Grail keys via `GRAIL_METRIC_KEYS` /
+  `metricTimeseriesQuery()`; unverified keys get the inert fallback + warning (D2).
+  Non-NRQL detectors honour the term operator (`alertConditionFor`) and
+  `AT_LEAST_ONCE` (`sampleSettings`); infra `equal` no longer emits `EQUALS` (D6;
+  `INFRA_OPERATOR_MAP.equal` removed).
+- **BREAKING (envelope/workflow shape):** detector envelopes drop the non-schema
+  `detectorId` (D3) and emit `executionSettings: {}` (D16). Every workflow emitter
+  (alert, non-NRQL, key transaction, AIOps v1/v2) uses
+  `trigger.eventTrigger.triggerConfiguration {type: "davis-problem", value: {…}}`
+  (`davisProblemTrigger`) instead of `trigger.event.config.davis_event{detectorIds}` /
+  `davisProblem` (D4). Detectors name events `[Migrated] <group> | <item>`
+  (`migratedEventName`); workflows link with
+  `matchesValue(event.name, "[Migrated] <group> | *")` (`migratedEventFilter`).
+  `private` / `migratedFrom` removed; severity-ladder workflows restrict problem
+  categories. `DTDavisEventWorkflow` / `DTWorkflow` are deprecated aliases of
+  `DTDavisProblemWorkflow`.
+- **BREAKING:** `AIOpsTransformer` workflows have dict `tasks`;
+  `notificationTaskStubs` / `mutingRuleDql` moved from the workflow body to
+  `AIOpsTransformData`; `minSeverity` removed (priority now warns). Enrichment
+  tasks never carry raw or LOW-confidence NRQL: `// UNCONVERTED NRQL: …\n// TODO: rewrite as DQL`
+  + warning (D15). `KeyTransactionTransformer` workflow gets dict `tasks` with a
+  placeholder action (D7).
+- **BREAKING:** `BaselineAlertTransformer` emits the §6 detector shape
+  (`AutoAdaptiveAnomalyDetectionAnalyzer`, string `{key,value}` inputs,
+  `alertCondition` ABOVE/BELOW/OUTSIDE_BOUNDS) instead of the flat
+  `displayName` / `dql` / `direction` object; data gains `anomalyDetectors[]`;
+  new `facet` input goes into the query `by:` via `addSplitDimension` (D7, D21).
+- `dealertingSamples` is capped at `slidingWindow` (`dealertingSamples()`, D17);
+  no `minLocationsFailing` / `learningPeriodDays` / `dimensions` inputs (D19–D21).
+- **BREAKING (segments):** `WorkloadTransformer` emits one `_all_entities`
+  include keyed on `type` / `id` / `name`; each group is
+  `type AND (id|name OR …)` — the old OR matched every node of the type (D14).
+  Dynatrace entity ids (`NRWorkloadEntity.guid`) use `id`; NR GUIDs fall back to
+  `name` with a warning; BROWSER/MOBILE → `FRONTEND`; synthetic monitors unmapped.
+- `DynatraceClient` picks the auth scheme by token prefix (`dt0c01.` → `Api-Token`,
+  `dt0s01.` / `dt0s16.` → `Bearer`) and uses `/platform/classic/environment-api/v2`
+  on `.apps.` hosts (`tokenAuthHeader`, `settingsV2Base`). New
+  `createAnomalyDetector()` injects `detectorActor` (`DYNATRACE_DETECTOR_ACTOR`,
+  UUID-validated in config) and fails fast without it (D16); `toMonacoYaml`
+  parameterises the actor as `{{ .detectorActor }}`.
+- `DocumentClient.delete(id, preferOauth, optimisticVersion)` and
+  `SLOAuditor.updateSlo(id, payload, version?)` send the kebab-case
+  `optimistic-locking-version` query param (D22).
+
 ### Changed (Gen3 anomaly detectors)
 - **BREAKING (output shape):** `AlertTransformer` and `NonNrqlAlertConditionTransformer`
   now emit `builtin:davis.anomaly-detectors` (schema v1.0.14) instead of Gen2

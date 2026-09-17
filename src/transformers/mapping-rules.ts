@@ -158,7 +158,6 @@ export const INFRA_METRIC_MAP: {
 export const INFRA_OPERATOR_MAP: Record<string, string> = {
   above: 'ABOVE',
   below: 'BELOW',
-  equal: 'EQUALS',
 };
 
 // ---------------------------------------------------------------------------

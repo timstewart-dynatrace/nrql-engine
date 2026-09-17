@@ -22,6 +22,8 @@ import {
   WorkloadTransformer,
   LegacyWorkloadTransformer,
 } from '../../src/transformers/index.js';
+import { FALLBACK_QUERY } from '../../src/transformers/detector-utils.js';
+import type { DTSegmentFilterNode } from '../../src/transformers/workload.transformer.js';
 
 // ═════════════════════════════════════════════════════════════════════════════
 // DashboardTransformer
@@ -265,11 +267,30 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
     const wf = result.data!.workflow;
     expect(wf.title).toBe('[Migrated] Test Policy');
     expect(wf.description).toContain('(id=9)');
-    expect(wf.trigger.event.config.davis_event).toEqual({
-      eventType: 'CUSTOM_ALERT',
-      detectorIds: [],
-      anyEventMatches: true,
+    expect(wf.trigger).toEqual({
+      eventTrigger: {
+        isActive: true,
+        triggerConfiguration: {
+          type: 'davis-problem',
+          value: {
+            analysisReady: false,
+            categories: {
+              availability: true,
+              error: true,
+              slowdown: true,
+              resource: true,
+              custom: true,
+              monitoringUnavailable: true,
+            },
+            customFilter: 'matchesValue(event.name, "[Migrated] Test Policy | *")',
+            entityTags: {},
+            entityTagsMatch: 'all',
+            onProblemClose: false,
+          },
+        },
+      },
     });
+    expect(wf).not.toHaveProperty('private');
     expect(result.data!.anomalyDetectors).toEqual([]);
     expect(result.data!.workflows).toHaveLength(1);
     expect(Array.isArray(wf.tasks)).toBe(false);
@@ -300,7 +321,7 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
     const det = result.data!.anomalyDetectors[0]!;
     expect(det.schemaId).toBe('builtin:davis.anomaly-detectors');
     expect(det.scope).toBe('environment');
-    expect(det.detectorId).toBe('davis-detector-test-policy-high-error-rate');
+    expect(det).not.toHaveProperty('detectorId');
     expect(det.value.title).toBe('[Migrated] High Error Rate');
     expect(det.value.enabled).toBe(true);
     expect(det.value.analyzer.name).toBe(
@@ -318,7 +339,7 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
     const props = Object.fromEntries(det.value.eventTemplate.properties.map((p) => [p.key, p.value]));
     expect(props).toMatchObject({
       'event.type': 'CUSTOM_ALERT',
-      'event.name': '[Migrated] High Error Rate',
+      'event.name': '[Migrated] Test Policy | High Error Rate',
       'source.policy': 'Test Policy',
       'source.condition': 'High Error Rate',
       'migrated.from': 'newrelic',
@@ -326,9 +347,9 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
       'evaluation.window': '60s',
       'runbook.url': 'https://runbooks/err',
     });
-    expect(result.data!.workflow.trigger.event.config.davis_event.detectorIds).toEqual([
-      det.detectorId,
-    ]);
+    expect(
+      result.data!.workflow.trigger.eventTrigger.triggerConfiguration.value.customFilter,
+    ).toBe('matchesValue(event.name, "[Migrated] Test Policy | *")');
   });
 
   it('should resolve AT_LEAST_ONCE and warning-term fallback', () => {
@@ -366,7 +387,7 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
     expect(result.data!.anomalyDetectors).toHaveLength(1);
     const det = result.data!.anomalyDetectors[0]!;
     expect(det.value.enabled).toBe(false);
-    expect(inputMap(det)['query']).toBe('timeseries count()');
+    expect(inputMap(det)['query']).toBe(FALLBACK_QUERY);
     expect(result.warnings.some((w) => w.includes('manual review'))).toBe(true);
   });
 
@@ -400,14 +421,13 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
     expect(wfs).toHaveLength(2);
     expect(result.data!.workflow).toBe(wfs[0]);
     expect(wfs[1]!.title).toBe('[Migrated] Ladder [ERROR]');
-    expect(wfs[1]!.migratedFrom).toEqual({
-      type: 'newrelic.severity_ladder',
-      severity: 'ERROR',
-      delayMinutes: 5,
-    });
-    expect(wfs[1]!.trigger.event.config.davis_event.eventProperties).toEqual({
-      'event.severity': 'ERROR',
-    });
+    expect(wfs[1]).not.toHaveProperty('migratedFrom');
+    expect(wfs[1]!.description).toContain('Severity-ladder workflow for ERROR (delay 5 min).');
+    const value = wfs[1]!.trigger.eventTrigger.triggerConfiguration.value;
+    expect(value.categories.error).toBe(true);
+    expect(value.categories.availability).toBe(false);
+    // Fanout workflows still link on the base policy name.
+    expect(value.customFilter).toBe('matchesValue(event.name, "[Migrated] Ladder | *")');
     expect(Object.keys(wfs[1]!.tasks)[0]).toBe('delay_5m');
     expect(wfs[0]!.tasks['delay_0m']).toBeUndefined();
     expect(result.warnings.some((w) => w.includes('severity-ladder'))).toBe(true);
@@ -423,7 +443,7 @@ describe('AlertTransformer (Gen3 Workflow + Davis anomaly detectors)', () => {
       ],
     });
     expect(result.data!.workflows).toHaveLength(1);
-    expect(result.data!.workflow.migratedFrom).toBeUndefined();
+    expect(result.data!.workflow).not.toHaveProperty('migratedFrom');
   });
 
   it('should transform multiple policies', () => {
@@ -1232,7 +1252,17 @@ describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
     expect(result.warnings.some((w) => w.includes('bucket-scoped IAM'))).toBe(true);
   });
 
-  it('should group collection entities by data object', () => {
+  type Node = DTSegmentFilterNode;
+  const groupOf = (n: Node) => {
+    if (n.type !== 'Group') throw new Error(`expected Group, got ${n.type}`);
+    return n;
+  };
+  const stmtOf = (n: Node) => {
+    if (n.type !== 'Statement') throw new Error(`expected Statement, got ${n.type}`);
+    return [n.key.value, n.operator.value, n.value.value];
+  };
+
+  it('should use a single _all_entities include with Smartscape type/name statements', () => {
     const result = workloadTransformer.transform({
       name: 'Mixed',
       collection: [
@@ -1242,27 +1272,15 @@ describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
       ],
     });
     const includes = result.data!.includes.items;
-    // APPLICATION + APM_APPLICATION both map to SERVICE→spans; HOST→logs
-    expect(includes.find((i) => i.dataObject === 'spans')).toBeDefined();
-    expect(includes.find((i) => i.dataObject === 'logs')).toBeDefined();
+    expect(includes).toHaveLength(1);
+    expect(includes[0]!.dataObject).toBe('_all_entities');
+    const root = groupOf(includes[0]!.filter);
+    expect(root.logicalOperator).toBe('OR');
+    expect(root.children).toHaveLength(2); // SERVICE group + HOST group
+    expect(JSON.stringify(includes)).not.toContain('dt.entity');
   });
 
-  it('should emit Statement filter on service.name for APPLICATION', () => {
-    const result = workloadTransformer.transform({
-      name: 'Prod',
-      collection: [{ name: 'web-app', type: 'APPLICATION' }],
-    });
-    const include = result.data!.includes.items[0]!;
-    expect(include.dataObject).toBe('spans');
-    expect(include.filter).toEqual({
-      type: 'Statement',
-      key: { value: 'service.name' },
-      operator: { value: '=' },
-      value: { value: 'web-app' },
-    });
-  });
-
-  it('should OR-group multiple entities of same data object', () => {
+  it('should AND the type with an OR of names (D14)', () => {
     const result = workloadTransformer.transform({
       name: 'Services',
       collection: [
@@ -1270,12 +1288,67 @@ describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
         { name: 'svc-b', type: 'APPLICATION' },
       ],
     });
-    const include = result.data!.includes.items[0]!;
-    expect(include.filter.type).toBe('Group');
-    if (include.filter.type === 'Group') {
-      expect(include.filter.logicalOperator).toBe('OR');
-      expect(include.filter.children).toHaveLength(2);
-    }
+    const group = groupOf(groupOf(result.data!.includes.items[0]!.filter).children[0]!);
+    expect(group.logicalOperator).toBe('AND');
+    expect(stmtOf(group.children[0]!)).toEqual(['type', '=', 'SERVICE']);
+    const names = groupOf(group.children[1]!);
+    expect(names.logicalOperator).toBe('OR');
+    expect(names.children.map(stmtOf)).toEqual([
+      ['name', '=', 'svc-a'],
+      ['name', '=', 'svc-b'],
+    ]);
+  });
+
+  it('should use id statements for Dynatrace entity ids', () => {
+    const result = workloadTransformer.transform({
+      name: 'prod',
+      collection: [{ type: 'HOST', name: 'h1', guid: 'HOST-ABC123' }],
+    });
+    const group = groupOf(groupOf(result.data!.includes.items[0]!.filter).children[0]!);
+    expect(group.logicalOperator).toBe('AND');
+    expect(stmtOf(group.children[0]!)).toEqual(['type', '=', 'HOST']);
+    expect(stmtOf(groupOf(group.children[1]!).children[0]!)).toEqual(['id', '=', 'HOST-ABC123']);
+  });
+
+  it('should mix id and name groups', () => {
+    const result = workloadTransformer.transform({
+      name: 'mixed',
+      collection: [
+        { type: 'HOST', name: 'h1', guid: 'HOST-ABC123' },
+        { type: 'HOST', name: 'h2' },
+      ],
+    });
+    const flat = JSON.stringify(result.data!.includes.items[0]!.filter);
+    expect(flat).toContain('{"value":"id"}');
+    expect(flat).toContain('{"value":"name"}');
+    expect(flat).not.toContain('dt.entity');
+  });
+
+  it('should fall back to name with a warning for NR GUIDs', () => {
+    const result = workloadTransformer.transform({
+      name: 'nr',
+      collection: [{ type: 'APPLICATION', name: 'checkout', guid: 'MXxBUE18QVBQTElDQVRJT058MTIz' }],
+    });
+    const flat = JSON.stringify(result.data!.includes.items[0]!.filter);
+    expect(flat).toContain('{"value":"SERVICE"}');
+    expect(flat).toContain('{"value":"checkout"}');
+    expect(flat).not.toContain('MXxBUE18');
+    expect(result.warnings.some((w) => w.includes('not a Dynatrace entity ID'))).toBe(true);
+  });
+
+  it('should map browser/mobile to FRONTEND and skip synthetic monitors', () => {
+    const result = workloadTransformer.transform({
+      name: 'fe',
+      collection: [
+        { type: 'BROWSER_APPLICATION', name: 'web' },
+        { type: 'MOBILE_APPLICATION', name: 'ios' },
+        { type: 'SYNTHETIC_MONITOR', name: 'ping' },
+      ],
+    });
+    const flat = JSON.stringify(result.data!.includes.items[0]!.filter);
+    expect(flat).toContain('{"value":"FRONTEND"}');
+    expect(flat).not.toContain('ping');
+    expect(result.warnings.some((w) => w.includes("'SYNTHETIC_MONITOR'"))).toBe(true);
   });
 
   it('should fallback to tag-based segment when empty', () => {
@@ -1286,11 +1359,10 @@ describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
     });
     expect(result.success).toBe(true);
     const include = result.data!.includes.items[0]!;
-    expect(include.dataObject).toBe('_all_data_object');
-    if (include.filter.type === 'Statement') {
-      expect(include.filter.key.value).toBe('migrated-workload');
-      expect(include.filter.value.value).toBe('empty-workload');
-    }
+    expect(include.dataObject).toBe('_all_entities');
+    expect(groupOf(include.filter).children.map(stmtOf)).toEqual([
+      ['tags.migrated-workload', '=', 'empty-workload'],
+    ]);
   });
 
   it('should warn on unmapped entity types and skip them', () => {
@@ -1302,43 +1374,40 @@ describe('WorkloadTransformer (Gen3 builtin:segment)', () => {
     expect(result.warnings.some((w) => w.includes('DASHBOARD'))).toBe(true);
   });
 
-  it('should convert type query to type-filter statement', () => {
+  it('should convert type query to a type statement group', () => {
     const result = workloadTransformer.transform({
       name: 'Apps',
       entitySearchQueries: [{ query: "type = 'APPLICATION'" }],
     });
-    expect(result.success).toBe(true);
-    const include = result.data!.includes.items[0]!;
-    if (include.filter.type === 'Statement') {
-      expect(include.filter.key.value).toBe('dt.entity.type');
-      expect(include.filter.value.value).toBe('SERVICE');
-    }
+    const group = groupOf(groupOf(result.data!.includes.items[0]!.filter).children[0]!);
+    expect(group.children.map(stmtOf)).toEqual([['type', '=', 'SERVICE']]);
   });
 
-  it('should convert name-like query to contains statement', () => {
+  it('should convert name-like query to a name contains statement', () => {
     const result = workloadTransformer.transform({
       name: 'Prod',
       entitySearchQueries: [{ query: "type = 'APPLICATION' AND name LIKE 'production%'" }],
     });
-    const include = result.data!.includes.items[0]!;
-    if (include.filter.type === 'Statement') {
-      expect(include.filter.operator.value).toBe('contains');
-      expect(include.filter.value.value).toBe('production');
-    }
+    const group = groupOf(groupOf(result.data!.includes.items[0]!.filter).children[0]!);
+    expect(group.logicalOperator).toBe('AND');
+    expect(group.children.map(stmtOf)).toEqual([
+      ['type', '=', 'SERVICE'],
+      ['name', 'contains', 'production'],
+    ]);
   });
 
-  it('should convert tag query to tag-key statement', () => {
+  it('should convert tag query to a tags.<key> statement', () => {
     const result = workloadTransformer.transform({
       name: 'Tagged',
       entitySearchQueries: [
         { query: "type = 'HOST' AND tags.environment = 'production'" },
       ],
     });
-    const include = result.data!.includes.items[0]!;
-    if (include.filter.type === 'Statement') {
-      expect(include.filter.key.value).toBe('environment');
-      expect(include.filter.value.value).toBe('production');
-    }
+    const group = groupOf(groupOf(result.data!.includes.items[0]!.filter).children[0]!);
+    expect(group.children.map(stmtOf)).toEqual([
+      ['type', '=', 'HOST'],
+      ['tags.environment', '=', 'production'],
+    ]);
   });
 });
 

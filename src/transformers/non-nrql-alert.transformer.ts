@@ -3,12 +3,14 @@
  * whose signal is NOT a NRQL query (APM, Infrastructure, Synthetic,
  * Browser, Mobile, External Service) to Dynatrace Gen3 Davis anomaly
  * detectors (`builtin:davis.anomaly-detectors`, v1.0.14 shape) plus a
- * paired Automation Workflow whose `davis_event` trigger targets the
- * detector id — same shape as `AlertTransformer`.
+ * paired Automation Workflow whose `davis-problem` trigger matches the
+ * detector's event name (`[Migrated] <condition> | <type>`) — same linkage
+ * as `AlertTransformer`.
  *
  * Mapping strategy: each condition carries a builtin metric name; the
  * transformer maps it through a per-product lookup table to a DT metric
- * key, builds a `timeseries` DQL query split by the Smartscape entity
+ * key, translates that to a Grail metric key (`metricTimeseriesQuery`; classic
+ * `builtin:` keys are invalid DQL), builds a `timeseries` DQL query split by the Smartscape entity
  * dimension (`dt.smartscape.*`) where one exists, and emits a static
  * threshold analyzer from the NR term(s). Unmapped metrics emit a warning
  * and produce a disabled placeholder detector.
@@ -20,17 +22,26 @@
 
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
-import { placeholderTask, resolveThreshold, type NRAlertTerm } from './alert.transformer.js';
+import { placeholderTask, type NRAlertTerm } from './alert.transformer.js';
 import {
   DAVIS_ANALYZERS,
   DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
   DETECTOR_SOURCE,
-  PLACEHOLDER_DQL,
+  FALLBACK_QUERY,
+  alertConditionFor,
+  metricTimeseriesQuery,
+  sampleSettings,
   staticThresholdInput,
   type DTAnomalyDetector,
   type DTKeyValue,
 } from './detector-utils.js';
-import { tasksListToDict, type DTDavisEventWorkflow } from './workflow-utils.js';
+import {
+  davisProblemTrigger,
+  migratedEventFilter,
+  migratedEventName,
+  tasksListToDict,
+  type DTDavisProblemWorkflow,
+} from './workflow-utils.js';
 import { smartscapeField } from '../validators/smartscape-map.js';
 
 // ---------------------------------------------------------------------------
@@ -85,7 +96,7 @@ const METRIC_MAP: Record<NRNonNrqlConditionType, Record<string, string>> = {
     'process.memoryResidentSizeBytes': 'builtin:tech.generic.mem.workingSetSize',
   },
   SYNTHETIC: {
-    'synthetic.success': 'builtin:synthetic.http.availability',
+    'synthetic.success': 'builtin:synthetic.http.availability.location.total',
     'synthetic.duration': 'builtin:synthetic.http.duration.geo',
   },
   BROWSER: {
@@ -128,8 +139,8 @@ const CLASSIC_ENTITY_TYPE: Record<NRNonNrqlConditionType, string> = {
 export interface NonNrqlAlertTransformData {
   /** One `builtin:davis.anomaly-detectors` envelope for the condition. */
   readonly anomalyDetectors: DTAnomalyDetector[];
-  /** Workflow(s) whose `davis_event` trigger targets the detector id. */
-  readonly workflows: DTDavisEventWorkflow[];
+  /** Workflow(s) whose `davis-problem` trigger matches the detector's event name. */
+  readonly workflows: DTDavisProblemWorkflow[];
 }
 
 // ---------------------------------------------------------------------------
@@ -153,17 +164,21 @@ export class NonNrqlAlertConditionTransformer {
       let enabled = input.enabled ?? true;
       let note: string;
       if (metricKey) {
-        if (dimension) {
-          query = `timeseries avg(${metricKey}), by:{${dimension}}`;
+        // D2: classic `builtin:` keys are invalid DQL; unverified keys get the inert fallback.
+        const base = metricTimeseriesQuery(metricKey, warnings);
+        if (!base.startsWith('timeseries ')) {
+          query = base;
+        } else if (dimension) {
+          query = `${base}, by:{${dimension}}`;
         } else {
-          query = `timeseries avg(${metricKey})`;
+          query = base;
           warnings.push(
             `NR ${input.conditionType} condition '${name}': classic entity type '${classicType}' has no Smartscape equivalent; detector query is not split by entity. Add a raw-dimension split in Dynatrace if per-entity alerting is required.`,
           );
         }
         note = `Migrated from NR ${input.conditionType} condition on metric '${input.metric}'.`;
       } else {
-        query = `// UNMAPPED NR METRIC: ${input.metric ?? '<unset>'}\n${PLACEHOLDER_DQL}`;
+        query = `// UNMAPPED NR METRIC: ${input.metric ?? '<unset>'}\n${FALLBACK_QUERY}`;
         enabled = false;
         note = `Migrated from NR ${input.conditionType} condition. Original metric: '${input.metric ?? ''}'. Map to a DT metric before enabling.`;
         warnings.push(
@@ -171,13 +186,26 @@ export class NonNrqlAlertConditionTransformer {
         );
       }
 
-      const { threshold, alertCondition, samples, violating } = resolveThreshold(
-        input.terms ?? [],
-      );
+      // D6: honour the NR term operator and AT_LEAST_ONCE occurrences.
+      const terms = input.terms ?? [];
+      let threshold = 0;
+      let alertCondition = 'ABOVE';
+      let violating = 3;
+      let samples = 3;
+      if (terms.length > 0) {
+        const critical =
+          terms.find((t) => (t.priority ?? '').toLowerCase() === 'critical') ?? terms[0]!;
+        threshold = Number(critical.threshold ?? 0);
+        alertCondition = alertConditionFor(critical.operator, alertCondition, warnings);
+        [violating, samples] = sampleSettings(
+          critical.thresholdDuration ?? 300,
+          critical.thresholdOccurrences,
+        );
+      }
 
       const properties: DTKeyValue[] = [
         { key: 'event.type', value: 'CUSTOM_ALERT' },
-        { key: 'event.name', value: `[Migrated] ${name}` },
+        { key: 'event.name', value: migratedEventName(name, ctype) },
         { key: 'source.condition', value: name },
         { key: 'source.type', value: ctype },
         { key: 'migrated.from', value: 'newrelic' },
@@ -191,21 +219,15 @@ export class NonNrqlAlertConditionTransformer {
         );
       }
 
-      const detectorId = `davis-${ctype}-${name}`
-        .toLowerCase()
-        .replace(/[^a-z0-9-]/g, '-')
-        .slice(0, 180);
-
       const detector: DTAnomalyDetector = {
         schemaId: DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
         scope: 'environment',
-        detectorId,
         value: {
           enabled,
           title: `[Migrated] ${name}`,
           description: note,
           source: DETECTOR_SOURCE,
-          executionSettings: { actor: null, queryOffset: null },
+          executionSettings: {}, // actor (service user) injected at import/export — D16
           analyzer: {
             name: DAVIS_ANALYZERS.STATIC_THRESHOLD,
             input: staticThresholdInput({
@@ -220,22 +242,11 @@ export class NonNrqlAlertConditionTransformer {
         },
       };
 
-      const workflow: DTDavisEventWorkflow = {
+      const workflow: DTDavisProblemWorkflow = {
         title: `[Migrated ${ctype}] ${name}`,
         description: note,
-        private: false,
-        trigger: {
-          event: {
-            active: true,
-            config: {
-              davis_event: {
-                eventType: 'CUSTOM_ALERT',
-                detectorIds: [detectorId],
-                anyEventMatches: true,
-              },
-            },
-          },
-        },
+        isPrivate: false,
+        trigger: davisProblemTrigger(migratedEventFilter(name)),
         // Gen3 Automation API requires `tasks` as a dict keyed by task id.
         tasks: tasksListToDict([
           placeholderTask('Attach notifications/actions via NotificationTransformer output.'),

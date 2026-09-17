@@ -14,33 +14,52 @@
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
 import { NRQLCompiler } from '../compiler/index.js';
+import {
+  MIGRATED_EVENT_PREFIX,
+  davisProblemTrigger,
+  tasksListToDict,
+  type DTDavisProblemWorkflow,
+} from './workflow-utils.js';
 
 const enrichmentCompiler = new NRQLCompiler();
 
+/**
+ * Enrichment tasks execute DQL, never NRQL (D15). HIGH/MEDIUM compiles are
+ * used as-is; anything else is preserved as a comment for manual rewrite.
+ * Mirrors Python `AIOpsTransformer._enrichment_dql`.
+ */
 function compileEnrichmentNrql(nrql: string): { dql: string; confidence: string; warnings: string[] } {
   const trimmed = (nrql ?? '').trim();
   if (!trimmed) {
     return {
-      dql: 'fetch events, from:-1h',
+      dql: '// TODO: add enrichment DQL',
       confidence: 'LOW',
-      warnings: ['Empty enrichment NRQL — emitted a default `fetch events` placeholder.'],
+      warnings: ['Empty enrichment NRQL — emitted a `// TODO: add enrichment DQL` placeholder.'],
     };
   }
-  const result = enrichmentCompiler.compile(trimmed);
-  if (!result.success) {
-    return {
-      dql: `// NRQL source: ${trimmed}\n// compiler error: ${result.error}\nfetch events, from:-1h`,
-      confidence: 'LOW',
-      warnings: [
-        `Enrichment NRQL failed to compile (${result.error}); emitted a placeholder. Rewrite the query manually.`,
-      ],
-    };
+  let result: ReturnType<NRQLCompiler['compile']> | undefined;
+  try {
+    result = enrichmentCompiler.compile(trimmed);
+  } catch {
+    result = undefined;
   }
+  const confidence = (result?.confidence ?? '').toUpperCase();
+  if (result?.success && result.dql && (confidence === 'HIGH' || confidence === 'MEDIUM')) {
+    return { dql: result.dql, confidence, warnings: result.warnings };
+  }
+  const oneLine = trimmed.split(/\s+/).join(' ');
   return {
-    dql: result.dql,
-    confidence: result.confidence,
-    warnings: result.warnings,
+    dql: `// UNCONVERTED NRQL: ${oneLine}\n// TODO: rewrite as DQL`,
+    confidence: confidence || 'LOW',
+    warnings: [`AIOps enrichment NRQL could not be converted to DQL: ${trimmed.slice(0, 80)}`],
   };
+}
+
+/** NR AI workflows route issues from any policy: match every migrated detector. */
+const ALL_MIGRATED_PROBLEMS_FILTER = `matchesValue(event.name, "${MIGRATED_EVENT_PREFIX} *")`;
+
+function priorityWarning(priority: string): string {
+  return `NR issue priority '${priority}' has no davis-problem trigger equivalent; the workflow triggers on all problem categories. Add a severity condition to the workflow if needed.`;
 }
 
 // ---------------------------------------------------------------------------
@@ -129,37 +148,19 @@ export interface DTWorkflowEnrichment {
   };
 }
 
-export interface DTAiopsWorkflow {
-  readonly title: string;
-  readonly description: string;
-  readonly isPrivate: boolean;
-  readonly trigger: {
-    readonly event: {
-      readonly active: boolean;
-      readonly config: {
-        readonly davisProblem: {
-          readonly categories: {
-            readonly availability: boolean;
-            readonly error: boolean;
-            readonly slowdown: boolean;
-            readonly resource: boolean;
-            readonly custom: boolean;
-            readonly monitoringUnavailable: boolean;
-          };
-          readonly entityTags: Record<string, string>;
-          readonly entityTagsMatch: 'all' | 'any';
-          readonly minSeverity: 'AVAILABILITY' | 'ERROR' | 'PERFORMANCE' | 'CUSTOM' | 'ALL';
-        };
-      };
-    };
-  };
-  readonly tasks: DTWorkflowEnrichment[];
-  readonly notificationTaskStubs: Array<{ channelType: string; taskName: string }>;
-  readonly mutingRuleDql: string[];
-}
+/**
+ * Gen3 Automation workflow (davis-problem trigger, dict-keyed `tasks`).
+ * Non-API data (notification stubs, muting-rule notes) lives on
+ * `AIOpsTransformData`, not on the workflow body.
+ */
+export type DTAiopsWorkflow = DTDavisProblemWorkflow<DTWorkflowEnrichment>;
 
 export interface AIOpsTransformData {
   readonly workflow: DTAiopsWorkflow;
+  /** Destinations to wire as NotificationTransformer tasks. */
+  readonly notificationTaskStubs: Array<{ channelType: string; taskName: string }>;
+  /** Muting-rule notes (Dynatrace has no mute-rule object). */
+  readonly mutingRuleDql: string[];
   readonly manualSteps: string[];
 }
 
@@ -167,18 +168,8 @@ export interface AIOpsTransformData {
 // Helpers
 // ---------------------------------------------------------------------------
 
-const PRIORITY_TO_MIN_SEVERITY: Record<
-  NonNullable<NRAIOpsWorkflowInput['issuesFilter']>['priority'] & string,
-  DTAiopsWorkflow['trigger']['event']['config']['davisProblem']['minSeverity']
-> = {
-  CRITICAL: 'ERROR',
-  HIGH: 'ERROR',
-  MEDIUM: 'PERFORMANCE',
-  LOW: 'CUSTOM',
-};
-
 const MANUAL_STEPS: string[] = [
-  'Wire NotificationTransformer output into `workflow.tasks` for each destination channel to complete the AIOps workflow.',
+  'Wire NotificationTransformer output into the `workflow.tasks` dict for each destination channel to complete the AIOps workflow.',
   'Enrichment DQL queries are translated from NRQL — verify the query against your Grail schema before enabling the workflow.',
   'Muting rules map to DQL filters that workflow steps must evaluate and short-circuit on. Dynatrace has no direct "mute rule" concept; review each rule and convert to a condition step where necessary.',
   'Destinations tagged as webhook/opsgenie/teams/victorops are emitted as HTTP action stubs; re-provision their URLs/credentials.',
@@ -198,9 +189,9 @@ export class AIOpsTransformer {
 
       const warnings: string[] = [];
 
-      const minSeverity = input.issuesFilter?.priority
-        ? PRIORITY_TO_MIN_SEVERITY[input.issuesFilter.priority]
-        : 'ALL';
+      if (input.issuesFilter?.priority) {
+        warnings.push(priorityWarning(input.issuesFilter.priority));
+      }
 
       const tasks: DTWorkflowEnrichment[] = [];
       for (const enrich of input.enrichments ?? []) {
@@ -235,32 +226,18 @@ export class AIOpsTransformer {
         title: `[Migrated AIOps] ${name}`,
         description: `Migrated from New Relic AIOps workflow "${name}".`,
         isPrivate: false,
-        trigger: {
-          event: {
-            active: input.enabled ?? true,
-            config: {
-              davisProblem: {
-                categories: {
-                  availability: true,
-                  error: true,
-                  slowdown: true,
-                  resource: true,
-                  custom: true,
-                  monitoringUnavailable: false,
-                },
-                entityTags: input.issuesFilter?.entityTags ?? {},
-                entityTagsMatch: 'all',
-                minSeverity,
-              },
-            },
-          },
-        },
-        tasks,
-        notificationTaskStubs,
-        mutingRuleDql,
+        trigger: davisProblemTrigger(ALL_MIGRATED_PROBLEMS_FILTER, {
+          entityTags: input.issuesFilter?.entityTags ?? {},
+          active: input.enabled ?? true,
+        }),
+        // Gen3 Automation API requires `tasks` as a dict keyed by task id.
+        tasks: tasksListToDict(tasks),
       };
 
-      return success({ workflow, manualSteps: MANUAL_STEPS }, [...warnings, ...MANUAL_STEPS]);
+      return success(
+        { workflow, notificationTaskStubs, mutingRuleDql, manualSteps: MANUAL_STEPS },
+        [...warnings, ...MANUAL_STEPS],
+      );
     } catch (err) {
       return failure([`Transformation error: ${String(err)}`]);
     }
@@ -285,10 +262,8 @@ export class AIOpsTransformer {
         warnings.push('workflowEnabled=false on source — emitted Workflow is disabled.');
       }
 
-      // Derive entityTags + minSeverity from the v2 predicate list.
+      // Derive entityTags from the v2 predicate list.
       const entityTags: Record<string, string> = {};
-      let minSeverity: DTAiopsWorkflow['trigger']['event']['config']['davisProblem']['minSeverity'] =
-        'ALL';
 
       for (const p of input.issuesFilter?.predicates ?? []) {
         if (p.attribute.startsWith('labels.') || p.attribute.startsWith('tags.')) {
@@ -297,10 +272,7 @@ export class AIOpsTransformer {
             entityTags[key] = p.values[0]!;
           }
         } else if (p.attribute === 'priority' && p.values.length > 0) {
-          const pri = p.values[0];
-          if (pri === 'CRITICAL' || pri === 'HIGH') minSeverity = 'ERROR';
-          else if (pri === 'MEDIUM') minSeverity = 'PERFORMANCE';
-          else if (pri === 'LOW') minSeverity = 'CUSTOM';
+          warnings.push(priorityWarning(p.values.join('|')));
         } else {
           warnings.push(
             `Predicate on attribute '${p.attribute}' (op=${p.operator}) has no direct Davis-problem filter equivalent; translate manually.`,
@@ -355,32 +327,12 @@ export class AIOpsTransformer {
         title: `[Migrated AIOps v2] ${name}`,
         description: `Migrated from New Relic AIOps workflow v2 "${name}".`,
         isPrivate: false,
-        trigger: {
-          event: {
-            active,
-            config: {
-              davisProblem: {
-                categories: {
-                  availability: true,
-                  error: true,
-                  slowdown: true,
-                  resource: true,
-                  custom: true,
-                  monitoringUnavailable: false,
-                },
-                entityTags,
-                entityTagsMatch: 'all',
-                minSeverity,
-              },
-            },
-          },
-        },
-        tasks,
-        notificationTaskStubs,
-        mutingRuleDql,
+        trigger: davisProblemTrigger(ALL_MIGRATED_PROBLEMS_FILTER, { entityTags, active }),
+        // Gen3 Automation API requires `tasks` as a dict keyed by task id.
+        tasks: tasksListToDict(tasks),
       };
 
-      return success({ workflow, manualSteps: MANUAL_STEPS }, [
+      return success({ workflow, notificationTaskStubs, mutingRuleDql, manualSteps: MANUAL_STEPS }, [
         ...warnings,
         ...MANUAL_STEPS,
       ]);

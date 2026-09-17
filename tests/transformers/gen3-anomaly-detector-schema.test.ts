@@ -15,7 +15,7 @@ import {
   NonNrqlAlertConditionTransformer,
 } from '../../src/transformers/index.js';
 import type { DTAnomalyDetector } from '../../src/transformers/index.js';
-import { nrqlToAnalyzerQuery } from '../../src/transformers/detector-utils.js';
+import { FALLBACK_QUERY, nrqlToAnalyzerQuery } from '../../src/transformers/detector-utils.js';
 import { tasksListToDict } from '../../src/transformers/workflow-utils.js';
 import { DynatraceClient } from '../../src/clients/index.js';
 
@@ -87,8 +87,12 @@ describe.each(SUBJECTS)('%s — v1.0.14 detector shape', (_label, make) => {
     expect(make().value.source).toBe('newrelic-migration');
   });
 
-  it('executionSettings carries actor + queryOffset', () => {
-    expect(Object.keys(make().value.executionSettings).sort()).toEqual(['actor', 'queryOffset']);
+  it('executionSettings is empty (actor injected at import — D16)', () => {
+    expect(make().value.executionSettings).toEqual({});
+  });
+
+  it('envelope has only Settings fields (no detectorId — D3)', () => {
+    expect(Object.keys(make()).sort()).toEqual(['schemaId', 'scope', 'value']);
   });
 
   it('eventTemplate contains only properties, all non-empty {key,value}', () => {
@@ -140,12 +144,13 @@ describe('Analyzer input query is DQL (AlertTransformer)', () => {
     const { det, warnings } = alertDetector('SELECT FROM WHERE ((( nonsense');
     const q = queryOf(det);
     expect(q.startsWith('// UNCONVERTED NRQL: SELECT FROM WHERE ((( nonsense\n')).toBe(true);
-    expect(codeOnly(q)).toBe('timeseries count()');
+    expect(codeOnly(q)).toBe(FALLBACK_QUERY);
+    expect(q).not.toContain('timeseries count()'); // D11: count() without a metric is invalid
     expect(warnings.some((w) => w.includes('placeholder query'))).toBe(true);
   });
 
   it('nrqlToAnalyzerQuery returns placeholder for empty NRQL', () => {
-    expect(nrqlToAnalyzerQuery('   ')).toBe('timeseries count()');
+    expect(nrqlToAnalyzerQuery('   ')).toBe(FALLBACK_QUERY);
   });
 
   it('nrqlToAnalyzerQuery falls back on LOW confidence', () => {
@@ -154,7 +159,7 @@ describe('Analyzer input query is DQL (AlertTransformer)', () => {
       compile: () => ({ success: true, dql: 'fetch logs', confidence: 'LOW' }),
     } as never;
     expect(nrqlToAnalyzerQuery('SELECT  x\n FROM y', warnings, fake)).toBe(
-      '// UNCONVERTED NRQL: SELECT x FROM y\ntimeseries count()',
+      `// UNCONVERTED NRQL: SELECT x FROM y\n${FALLBACK_QUERY}`,
     );
     expect(warnings[0]).toContain('LOW');
   });
@@ -192,7 +197,7 @@ describe('Anomaly detector wire payload (DynatraceClient.createSettingsObject)',
     for (const f of FORBIDDEN_VALUE_FIELDS) expect(value).not.toHaveProperty(f);
     expect(typeof value['source']).toBe('string');
     expect(Object.keys(value['eventTemplate'] as object)).toEqual(['properties']);
-    expect(value['executionSettings']).toEqual({ actor: null, queryOffset: null });
+    expect(value['executionSettings']).toEqual({});
     const analyzer = value['analyzer'] as { name: string; input: Array<{ value: unknown }> };
     expect(analyzer.name.startsWith('dt.statistics.ui.anomaly_detection.')).toBe(true);
     expect(analyzer.input.every((i) => typeof i.value === 'string' && i.value !== '')).toBe(true);

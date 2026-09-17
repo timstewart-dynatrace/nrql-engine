@@ -9,9 +9,10 @@
  *                           (`builtin:davis.anomaly-detectors`, v1.0.14 shape)
  *   NR Notification Ch.  -> Workflow action task (via NotificationTransformer)
  *
- * The workflow's `trigger.event.config.davis_event` filters Davis events by
- * the detector ids produced from the policy's conditions. Detector queries
- * are DQL compiled from the condition NRQL (see `nrqlToAnalyzerQuery`).
+ * Each detector names its events `[Migrated] <policy> | <condition>`; the
+ * policy's workflow uses a `davis-problem` trigger whose customFilter matches
+ * that prefix (`migratedEventFilter`). Detector queries are timeseries DQL
+ * compiled from the condition NRQL (see `nrqlToAnalyzerQuery`).
  *
  * Mirrors Python `transformers/alert_transformer.py` in
  * NewRelic-to-Dynatrace-Migration-Utilities.
@@ -33,8 +34,11 @@ import {
   type DTKeyValue,
 } from './detector-utils.js';
 import {
+  davisProblemTrigger,
+  migratedEventFilter,
+  migratedEventName,
   tasksListToDict,
-  type DTDavisEventWorkflow,
+  type DTDavisProblemWorkflow,
   type DTWorkflowTaskDefinition,
 } from './workflow-utils.js';
 import {
@@ -91,37 +95,12 @@ export interface NRAlertTerm {
 // ---------------------------------------------------------------------------
 
 /**
- * A Gen3 Workflow configured to fire on Davis problems (used by
- * KeyTransactionTransformer). AlertTransformer now emits
- * `DTDavisEventWorkflow` instead. Mirrors the
- * shape accepted by the dynatrace_automation_workflow Terraform resource
- * / workflow settings schema.
+ * A Gen3 Workflow configured to fire on Davis problems.
+ *
+ * @deprecated Alias of `DTDavisProblemWorkflow` (the previous
+ * `trigger.event.config.davisProblem` shape was not an Automation API shape).
  */
-export interface DTWorkflow {
-  readonly title: string;
-  readonly description: string;
-  readonly isPrivate: boolean;
-  readonly trigger: {
-    readonly event: {
-      readonly active: boolean;
-      readonly config: {
-        readonly davisProblem: {
-          readonly categories: {
-            readonly availability: boolean;
-            readonly error: boolean;
-            readonly slowdown: boolean;
-            readonly resource: boolean;
-            readonly custom: boolean;
-            readonly monitoringUnavailable: boolean;
-          };
-          readonly entityTags: Record<string, string>;
-          readonly entityTagsMatch: 'all' | 'any';
-        };
-      };
-    };
-  };
-  readonly tasks: DTWorkflowTaskRef[];
-}
+export type DTWorkflow = DTDavisProblemWorkflow;
 
 /**
  * Placeholder task list — downstream callers (e.g., the consuming CLI
@@ -159,9 +138,9 @@ export interface DTMetricEvent {
 
 export interface AlertTransformData {
   /** First (or only) workflow — equals `workflows[0]`. */
-  readonly workflow: DTDavisEventWorkflow;
+  readonly workflow: DTDavisProblemWorkflow;
   /** All workflows; >1 only when a severity-ladder fanout occurred. */
-  readonly workflows: DTDavisEventWorkflow[];
+  readonly workflows: DTDavisProblemWorkflow[];
   /** One `builtin:davis.anomaly-detectors` envelope per NR condition. */
   readonly anomalyDetectors: DTAnomalyDetector[];
 }
@@ -344,12 +323,9 @@ export class AlertTransformer {
       for (const condition of nrPolicy.conditions ?? []) {
         anomalyDetectors.push(this.buildAnomalyDetector(condition, policyName, warnings));
       }
-      const detectorIds = anomalyDetectors.map((d) => d.detectorId);
-
       const workflows = this.buildWorkflows(
         policyName,
         policyId,
-        detectorIds,
         nrPolicy.notificationChannels ?? [],
         nrPolicy.severityRules ?? [],
         warnings,
@@ -395,17 +371,12 @@ export class AlertTransformer {
       condition.terms ?? [],
     );
 
-    const detectorId = `davis-detector-${policyName}-${conditionName}`
-      .toLowerCase()
-      .replace(/ /g, '-')
-      .slice(0, 180);
-
     // analyzer.input[query] is server-validated as DQL — never pass raw NRQL.
     const dqlQuery = nrqlToAnalyzerQuery(query, warnings);
 
     const properties: DTKeyValue[] = [
       { key: 'event.type', value: 'CUSTOM_ALERT' },
-      { key: 'event.name', value: `[Migrated] ${conditionName}` },
+      { key: 'event.name', value: migratedEventName(policyName, conditionName) },
       { key: 'source.policy', value: policyName },
       { key: 'source.condition', value: conditionName },
       { key: 'migrated.from', value: 'newrelic' },
@@ -419,7 +390,6 @@ export class AlertTransformer {
     return {
       schemaId: DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
       scope: 'environment',
-      detectorId,
       value: {
         enabled,
         title: `[Migrated] ${conditionName}`,
@@ -427,7 +397,7 @@ export class AlertTransformer {
           description ||
           `Migrated from New Relic policy '${policyName}'. Original NRQL: ${query.slice(0, 200)}`,
         source: DETECTOR_SOURCE,
-        executionSettings: { actor: null, queryOffset: null },
+        executionSettings: {}, // actor (service user) injected at import/export — D16
         analyzer: {
           name: DAVIS_ANALYZERS.STATIC_THRESHOLD,
           input: staticThresholdInput({
@@ -452,11 +422,10 @@ export class AlertTransformer {
   private buildWorkflows(
     policyName: string,
     policyId: string,
-    detectorIds: string[],
     channels: readonly NRNotificationChannelInput[],
     severityRules: readonly NRSeverityRule[],
     warnings: string[],
-  ): DTDavisEventWorkflow[] {
+  ): DTDavisProblemWorkflow[] {
     const delays = new Map<string, number>();
     for (const r of severityRules) {
       delays.set(
@@ -466,24 +435,15 @@ export class AlertTransformer {
     }
     if (severityRules.length === 0 || new Set(delays.values()).size <= 1) {
       return [
-        this.buildSingleWorkflow(policyName, policyId, detectorIds, channels, undefined, warnings),
+        this.buildSingleWorkflow(policyName, policyId, channels, undefined, warnings),
       ];
     }
 
-    const workflows: DTDavisEventWorkflow[] = [];
+    const workflows: DTDavisProblemWorkflow[] = [];
     for (const [severity, delay] of delays) {
-      workflows.push({
-        ...this.buildSingleWorkflow(
-          `${policyName} [${severity}]`,
-          policyId,
-          detectorIds,
-          channels,
-          severity,
-          warnings,
-          delay,
-        ),
-        migratedFrom: { type: 'newrelic.severity_ladder', severity, delayMinutes: delay },
-      });
+      workflows.push(
+        this.buildSingleWorkflow(policyName, policyId, channels, severity, warnings, delay),
+      );
     }
     const delayDesc = [...delays].map(([k, v]) => `${k}=${v}`).join(', ');
     warnings.push(
@@ -492,15 +452,19 @@ export class AlertTransformer {
     return workflows;
   }
 
+  /**
+   * `policyName` is the base policy name; a severity-fanout workflow is titled
+   * `<policy> [SEVERITY]` but still links on the base name, because detector
+   * events carry the base policy name.
+   */
   private buildSingleWorkflow(
     policyName: string,
     policyId: string,
-    detectorIds: string[],
     channels: readonly NRNotificationChannelInput[],
     severityFilter: string | undefined,
     warnings: string[],
     delayMinutes = 0,
-  ): DTDavisEventWorkflow {
+  ): DTDavisProblemWorkflow {
     const tasks: DTWorkflowTaskDefinition[] = [];
     channels.forEach((channel, idx) => {
       const result = this.notificationTransformer.transform(channel);
@@ -527,24 +491,19 @@ export class AlertTransformer {
 
     if (tasks.length === 0) tasks.push(placeholderTask());
 
+    let description = `Migrated from New Relic alert policy '${policyName}' (id=${policyId}).`;
+    if (severityFilter) {
+      description += ` Severity-ladder workflow for ${severityFilter} (delay ${delayMinutes} min).`;
+    }
+
     return {
-      title: `[Migrated] ${policyName}`,
-      description: `Migrated from New Relic alert policy '${policyName}' (id=${policyId}).`,
-      private: false,
+      title: severityFilter ? `[Migrated] ${policyName} [${severityFilter}]` : `[Migrated] ${policyName}`,
+      description,
       isPrivate: false,
-      trigger: {
-        event: {
-          active: true,
-          config: {
-            davis_event: {
-              eventType: 'CUSTOM_ALERT',
-              detectorIds,
-              anyEventMatches: true,
-              ...(severityFilter ? { eventProperties: { 'event.severity': severityFilter } } : {}),
-            },
-          },
-        },
-      },
+      trigger: davisProblemTrigger(migratedEventFilter(policyName), {
+        severity: severityFilter ?? '',
+        warnings,
+      }),
       // Gen3 Automation API requires `tasks` as a dict keyed by task id.
       tasks: tasksListToDict(tasks),
     };

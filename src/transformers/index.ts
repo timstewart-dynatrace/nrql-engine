@@ -62,11 +62,34 @@ export { resolveThreshold, placeholderTask } from './alert.transformer.js';
 export {
   DAVIS_ANALYZERS,
   DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+  DETECTOR_ACTOR_PLACEHOLDER,
+  FALLBACK_QUERY,
+  GRAIL_METRIC_KEYS,
+  addSplitDimension,
+  alertConditionFor,
+  dealertingSamples,
+  ensureTimeseries,
+  metricTimeseriesQuery,
   nrqlToAnalyzerQuery,
+  sampleSettings,
+  withDetectorActor,
 } from './detector-utils.js';
 export type { DTAnomalyDetector, DTKeyValue, DavisAnalyzerName } from './detector-utils.js';
-export { tasksListToDict } from './workflow-utils.js';
-export type { DTDavisEventWorkflow, DTWorkflowTaskDefinition } from './workflow-utils.js';
+export {
+  MIGRATED_EVENT_PREFIX,
+  PROBLEM_CATEGORIES,
+  davisProblemTrigger,
+  migratedEventFilter,
+  migratedEventName,
+  tasksListToDict,
+} from './workflow-utils.js';
+export type {
+  DTDavisEventWorkflow,
+  DTDavisProblemTrigger,
+  DTDavisProblemWorkflow,
+  DTProblemCategory,
+  DTWorkflowTaskDefinition,
+} from './workflow-utils.js';
 
 // Notification transformer (Gen3 default + Gen2 legacy opt-in)
 export {
