@@ -933,7 +933,7 @@ export class NewRelicClient {
         accountId: this.accountId,
         region: this.region,
         exportTimestamp: new Date().toISOString(),
-        toolVersion: '1.0.0',
+        toolVersion: '2.0.0',
       },
       dashboards: await this.getAllDashboards(),
       alertPolicies: await this.getAllAlertPolicies(),
