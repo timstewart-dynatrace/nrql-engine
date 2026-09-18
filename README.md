@@ -70,9 +70,38 @@ const legacyAlert = createTransformer('alert', { legacy: true });
 
 ## Installation
 
+The package is published to **GitHub Packages** (not npmjs.com). Installing requires Node.js 18+ and a GitHub token — GitHub Packages needs authentication even for public packages.
+
+1. Create a GitHub personal access token (classic) with the `read:packages` scope and export it:
+
+   ```bash
+   export GITHUB_TOKEN=<your-token>
+   ```
+
+2. Add an `.npmrc` next to your project's `package.json` that points the `@timstewart-dynatrace` scope at GitHub Packages and reads the token from the environment (safe to commit — it holds no secret):
+
+   ```ini
+   @timstewart-dynatrace:registry=https://npm.pkg.github.com
+   //npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}
+   ```
+
+3. Install:
+
+   ```bash
+   npm install @timstewart-dynatrace/nrql-engine
+   ```
+
+Subpath entry points: `@timstewart-dynatrace/nrql-engine/compiler`, `/validators`, and `/transformers` (browser-safe, no Node clients).
+
+### Upgrading from 0.x / 1.x to 2.0
+
+2.0.0 changes emitted output (see [CHANGELOG](CHANGELOG.md)): Smartscape-first DQL, Platform SLO bodies, Gen3 Davis anomaly detectors, and `davis-problem` workflow triggers. Creating detectors through `DynatraceClient` now requires `detectorActor` — the UUID of a service user on the target tenant.
+
+### Working from source
+
 ```bash
-npm install @timstewart-dynatrace/nrql-engine
-# or, working from source:
+git clone https://github.com/timstewart-dynatrace/nrql-engine.git
+cd nrql-engine
 npm install
 cp .env.example .env  # only needed for clients / registry
 ```
@@ -80,7 +109,7 @@ cp .env.example .env  # only needed for clients / registry
 ## Development
 
 ```bash
-npm test              # Run all 1562 tests
+npm test              # Run all 1653 tests
 npm run typecheck     # Type-check with tsc
 npm run test:watch    # Watch mode
 npm run test:coverage # Coverage report
