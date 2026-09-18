@@ -1,20 +1,30 @@
 /**
- * SLO Transformer - Converts New Relic SLOs to Dynatrace format.
+ * SLO Transformer — Converts New Relic SLOs to Dynatrace Platform SLOs.
+ *
+ * Emits `POST /platform/slo/v1/slos` bodies with a DQL `customSli.indicator`
+ * grouped by `dt.smartscape.service`. Classic `builtin:monitoring.slo`
+ * metric-selector SLOs are no longer emitted. Mirrors Python
+ * `transformers/slo_transformer.py`.
  *
  * New Relic SLO concepts:
  * - SLI (Service Level Indicator): Defined by good/valid events queries
  * - SLO: Target percentage over a time window
  * - Time Window: Rolling period (days, weeks, months)
- *
- * Dynatrace SLO concepts:
- * - SLO: Combined indicator and objective
- * - Metric Expression: Defines the success rate calculation
- * - Evaluation Type: Rolling or calendar-based
  */
 
 import { SLO_TIME_UNIT_MAP } from './mapping-rules.js';
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
+import {
+  DEFAULT_LATENCY_THRESHOLD_MS,
+  availabilityIndicator,
+  buildPlatformSlo,
+  extractLatencyThresholdMs,
+  extractServiceName,
+  latencyIndicator,
+  type DTPlatformSlo,
+  type ServiceScope,
+} from './slo-utils.js';
 
 // ---------------------------------------------------------------------------
 // Input / output interfaces
@@ -57,30 +67,20 @@ export interface NRSloObjective {
 }
 
 export interface NRSloEvents {
-  readonly validEvents?: { where?: string };
-  readonly goodEvents?: { where?: string };
-  readonly badEvents?: { where?: string };
+  readonly validEvents?: { from?: string; where?: string };
+  readonly goodEvents?: { from?: string; where?: string };
+  readonly badEvents?: { from?: string; where?: string };
 }
 
-export interface DTSlo {
-  name: string;
-  description: string;
-  metricName: string;
-  metricExpression: string;
-  evaluationType: string;
-  filter: string;
-  target: number;
-  warning: number;
-  timeframe: string;
-  enabled: boolean;
-}
+/** Gen3 Platform SLO request body (was classic builtin:monitoring.slo). */
+export type DTSlo = DTPlatformSlo;
 
 // ---------------------------------------------------------------------------
 // SLOTransformer
 // ---------------------------------------------------------------------------
 
 export class SLOTransformer {
-  transform(nrSlo: NRSloInput): TransformResult<DTSlo> {
+  transform(nrSlo: NRSloInput & { guid?: string; id?: string }): TransformResult<DTSlo> {
     const warnings: string[] = [];
 
     try {
@@ -102,16 +102,24 @@ export class SLOTransformer {
       const windowUnit = rolling.unit ?? 'DAY';
 
       const events = nrSlo.events ?? {};
+      const guid = nrSlo.guid ?? nrSlo.id;
 
-      const dtSlo = this.buildDynatraceSlo(
-        sloName,
-        description,
+      const original = this.originalNrql(events);
+      const dtSlo = buildPlatformSlo({
+        name: `[Migrated] ${sloName}`,
+        description:
+          (description || 'Migrated from New Relic') +
+          (original ? `\n\n--- Original NR SLI ---\n${original}` : ''),
         target,
-        windowCount,
-        windowUnit,
-        events,
-        warnings,
-      );
+        indicator: this.buildIndicator(events, warnings),
+        timeframeFrom: this.buildTimeframe(
+          windowCount,
+          SLO_TIME_UNIT_MAP[windowUnit] ?? 'DAY',
+          warnings,
+        ),
+        tags: ['MigratedFromNR:true'],
+        ...(guid ? { externalId: `nr-slo-${guid}` } : {}),
+      });
 
       return success(dtSlo, warnings);
     } catch (err) {
@@ -138,49 +146,59 @@ export class SLOTransformer {
       const target = input.target ?? 99.0;
 
       // Time window: rolling (count+unit) or calendar-aligned.
-      let timeframe = '-7d';
+      let timeframeFrom = 'now-7d';
       if (input.timeWindow?.rolling) {
         const unit = SLO_TIME_UNIT_MAP[input.timeWindow.rolling.unit] ?? 'DAY';
-        timeframe = this.buildTimeframe(input.timeWindow.rolling.count, unit);
+        timeframeFrom = this.buildTimeframe(input.timeWindow.rolling.count, unit, warnings);
       } else if (input.timeWindow?.calendarAligned) {
         const calUnit = input.timeWindow.calendarAligned.unit.toUpperCase();
-        // DT calendar-aligned evaluation uses the `@<unit>` snap suffix.
-        const snap: Record<string, string> = { DAY: '-1d@d', WEEK: '-1w@w', MONTH: '-1M@M' };
-        timeframe = snap[calUnit] ?? '-30d';
+        const snap: Record<string, string> = {
+          DAY: 'now-1d@d',
+          WEEK: 'now-1w@w',
+          MONTH: 'now-1M@M',
+        };
+        timeframeFrom = snap[calUnit] ?? 'now-30d';
         warnings.push(
-          `Calendar-aligned time window '${input.timeWindow.calendarAligned.unit}' mapped to DQL snap expression '${timeframe}'. Verify month-boundary semantics match NR's v3 calendar alignment.`,
+          `Calendar-aligned time window '${input.timeWindow.calendarAligned.unit}' mapped to timeframe '${timeframeFrom}'. Verify month-boundary semantics match NR's v3 calendar alignment.`,
         );
       }
 
-      // SLI heuristic: reuse v1 event-type detection by routing the nrql
-      // through detectSloType against the nrql+badEventsNrql pair.
+      // SLI heuristic: reuse v1 event-type detection on the nrql + badEventsNrql pair.
       const validQuery = input.sli.nrql;
       const goodQuery = input.sli.badEventsNrql
         ? `NOT (${input.sli.badEventsNrql})`
         : input.sli.nrql;
-      const metricExpression = this.buildMetricExpression(
+
+      const scope: ServiceScope = {};
+      if (input.entityGuid && /^SERVICE-[0-9A-F]+$/.test(input.entityGuid)) {
+        Object.assign(scope, { serviceId: input.entityGuid });
+      } else if (input.entityGuid) {
+        warnings.push(
+          `entityGuid '${input.entityGuid}' is not a Dynatrace SERVICE id; scope the indicator manually (e.g. dt.smartscape.service == toSmartscapeId("SERVICE-…")).`,
+        );
+      }
+
+      const indicator = this.buildIndicator(
         { validEvents: { where: validQuery }, goodEvents: { where: goodQuery } },
         warnings,
+        scope,
       );
 
       warnings.push(
-        'Service Levels v3 is a newer NR API shape — the engine maps it to the same DT SLO schema as v1/v2. Validate the emitted metricExpression against your Grail data model before enabling.',
+        'Service Levels v3 is a newer NR API shape — the engine maps it to the same Platform SLO as v1/v2. Validate the emitted DQL indicator against your Grail data before enabling.',
       );
 
-      const dtSlo: DTSlo = {
-        name: `[Migrated SLv3] ${name}`,
-        description: description || 'Migrated from New Relic Service Levels v3',
-        metricName: this.sanitizeMetricName(name),
-        metricExpression,
-        evaluationType: 'AGGREGATE',
-        filter: input.entityGuid ? `entityId("${input.entityGuid}")` : '',
-        target,
-        warning: Math.min(target + 0.4, 99.9),
-        timeframe,
-        enabled: true,
-      };
-
-      return success(dtSlo, warnings);
+      return success(
+        buildPlatformSlo({
+          name: `[Migrated SLv3] ${name}`,
+          description: description || 'Migrated from New Relic Service Levels v3',
+          target,
+          indicator,
+          timeframeFrom,
+          tags: ['MigratedFromNR:true'],
+        }),
+        warnings,
+      );
     } catch (err) {
       return failure([`Transformation error: ${String(err)}`]);
     }
@@ -194,84 +212,77 @@ export class SLOTransformer {
   // Private helpers
   // -----------------------------------------------------------------------
 
-  private buildDynatraceSlo(
-    name: string,
-    description: string,
-    target: number,
-    windowCount: number,
-    windowUnit: string,
+  private buildTimeframe(count: number, unit: string, warnings: string[] = []): string {
+    if (unit === 'WEEK') return `now-${count}w`;
+    if (unit === 'MONTH') {
+      warnings.push(`NR SLO window of ${count} month(s) approximated as ${count * 30} days.`);
+      return `now-${count * 30}d`;
+    }
+    return `now-${count}d`;
+  }
+
+  private buildIndicator(
     events: NRSloEvents,
     warnings: string[],
-  ): DTSlo {
-    const dtTimeUnit = SLO_TIME_UNIT_MAP[windowUnit] ?? 'DAY';
-    const timeframe = this.buildTimeframe(windowCount, dtTimeUnit);
-    const metricExpression = this.buildMetricExpression(events, warnings);
+    scope: ServiceScope = {},
+  ): string {
+    const validQuery = events.validEvents?.where ?? '';
+    const goodQuery = events.goodEvents?.where ?? '';
+    const badQuery = events.badEvents?.where ?? '';
 
-    return {
-      name: `[Migrated] ${name}`,
-      description: description || 'Migrated from New Relic',
-      metricName: this.sanitizeMetricName(name),
-      metricExpression,
-      evaluationType: 'AGGREGATE',
-      filter: '',
-      target,
-      warning: target - 1.0,
-      timeframe,
-      enabled: true,
-    };
-  }
-
-  private buildTimeframe(count: number, unit: string): string {
-    const unitMap: Record<string, string> = {
-      DAY: 'd',
-      WEEK: 'w',
-      MONTH: 'M',
-    };
-    const suffix = unitMap[unit] ?? 'd';
-    return `-${count}${suffix}`;
-  }
-
-  private buildMetricExpression(events: NRSloEvents, warnings: string[]): string {
-    const validEvents = events.validEvents ?? {};
-    const goodEvents = events.goodEvents ?? {};
-
-    const validQuery = validEvents.where ?? '';
-    const goodQuery = goodEvents.where ?? '';
+    const serviceName = extractServiceName([validQuery, goodQuery, badQuery].join(' '));
+    const effective: ServiceScope = { ...scope, ...(serviceName ? { serviceName } : {}) };
+    if (!effective.serviceName && !effective.serviceId) {
+      warnings.push(
+        'Could not determine the service from the NR SLI; the indicator covers all services. Add a filter (e.g. contains(entityName, "<service>")).',
+      );
+    }
 
     const sloType = this.detectSloType(validQuery, goodQuery);
 
-    if (sloType === 'availability') {
+    if (sloType === 'availability' || sloType === 'error_rate') {
       warnings.push(
-        'SLO appears to be availability-based. Using builtin service availability metric.',
+        `SLO appears to be ${sloType.replace('_', '-')} based. Using service success-rate SLI (dt.service.request.count / failure_count).`,
       );
-      return '(100)*(builtin:service.availability:filter(and(in("dt.entity.service",entitySelector("type(service)")))))';
-    }
-
-    if (sloType === 'error_rate') {
-      warnings.push(
-        'SLO appears to be error-rate based. Using builtin service error rate metric.',
-      );
-      return '(100)*(builtin:service.errors.total.successRate:filter(and(in("dt.entity.service",entitySelector("type(service)")))))';
+      return availabilityIndicator(effective);
     }
 
     if (sloType === 'latency') {
-      warnings.push(
-        'SLO appears to be latency-based. Manual configuration recommended for specific thresholds.',
-      );
-      return (
-        '(100)*((builtin:service.response.time:avg:partition("latency",value("good",lt(1000000))):' +
-        'filter(and(in("dt.entity.service",entitySelector("type(service)"))))):splitBy():count:default(0))/' +
-        '(builtin:service.requestCount.total:filter(and(in("dt.entity.service",entitySelector("type(service)"))))):splitBy():sum)'
-      );
+      let thresholdMs = extractLatencyThresholdMs(goodQuery);
+      if (thresholdMs === undefined) {
+        thresholdMs = DEFAULT_LATENCY_THRESHOLD_MS;
+        warnings.push(
+          `SLO appears to be latency-based but no duration threshold was found; defaulted to ${thresholdMs}ms.`,
+        );
+      } else {
+        warnings.push(
+          `SLO appears to be latency-based. Using ${thresholdMs}ms response-time threshold.`,
+        );
+      }
+      return latencyIndicator(thresholdMs, effective);
     }
 
-    // Unknown type
     warnings.push(
-      `Could not automatically determine SLO metric type. ` +
+      `Could not automatically determine SLO type. ` +
         `Original queries - Valid: ${validQuery.slice(0, 50)}..., Good: ${goodQuery.slice(0, 50)}... ` +
-        'Manual configuration required.',
+        'Defaulted to service success-rate SLI; manual review required.',
     );
-    return '(100)*(builtin:service.availability)';
+    return availabilityIndicator(effective);
+  }
+
+  private originalNrql(events: NRSloEvents): string {
+    const lines: string[] = [];
+    for (const [key, label] of [
+      ['validEvents', 'Valid'],
+      ['goodEvents', 'Good'],
+      ['badEvents', 'Bad'],
+    ] as const) {
+      const ev = events[key];
+      if (ev?.from || ev?.where) {
+        lines.push(`${label}: FROM ${ev.from ?? '?'} WHERE ${ev.where || 'N/A'}`);
+      }
+    }
+    return lines.join('\n');
   }
 
   private detectSloType(validQuery: string, goodQuery: string): string {
@@ -282,12 +293,5 @@ export class SLOTransformer {
       return 'latency';
     if (queries.includes('status') || queries.includes('available')) return 'availability';
     return 'unknown';
-  }
-
-  private sanitizeMetricName(name: string): string {
-    let sanitized = name.toLowerCase();
-    sanitized = sanitized.replace(/ /g, '_');
-    sanitized = sanitized.replace(/[^a-z0-9_]/g, '');
-    return `slo.migrated.${sanitized}`;
   }
 }

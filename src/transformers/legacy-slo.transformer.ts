@@ -2,7 +2,7 @@
  * Legacy SLO Transformer (Gen2 classic SLO v1 shape).
  *
  * For parity with Dynatrace tenants still on the SLO v1 API. The
- * Gen3 SLOTransformer emits the v2 `builtin:monitoring.slo` shape by
+ * Gen3 SLOTransformer emits a Platform SLO (`/platform/slo/v1/slos`) by
  * default; this class emits the pre-Gen3 `/api/v2/slo` v1 payload with
  * `metricRate` / `numeratorValue` / `denominatorValue` fields instead
  * of a metricExpression.
@@ -27,7 +27,7 @@ export interface LegacyDTSloV1 {
 }
 
 const LEGACY_WARNING =
-  'Emitting Gen2 classic SLO v1 (legacy). Default output is the Gen3 `builtin:monitoring.slo` v2 schema — use SLOTransformer unless legacy parity is required.';
+  'Emitting Gen2 classic SLO v1 (legacy). Default output is a Gen3 Platform SLO (DQL SLI) — use SLOTransformer unless legacy parity is required.';
 
 export class LegacySLOTransformer {
   transform(nrSlo: NRSloInput): TransformResult<LegacyDTSloV1> {

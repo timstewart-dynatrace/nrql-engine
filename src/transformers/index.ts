@@ -120,6 +120,13 @@ export type {
   NRServiceLevelV3Input,
   DTSlo,
 } from './slo.transformer.js';
+export {
+  availabilityIndicator,
+  latencyIndicator,
+  buildPlatformSlo,
+  defaultWarning,
+} from './slo-utils.js';
+export type { DTPlatformSlo, DTPlatformSloCriteria } from './slo-utils.js';
 
 // Workload transformer (Gen3 default + Gen2 legacy opt-in)
 export { WorkloadTransformer, LegacyWorkloadTransformer } from './workload.transformer.js';
@@ -526,7 +533,6 @@ export { KeyTransactionTransformer } from './key-transaction.transformer.js';
 export type {
   NRKeyTransactionInput,
   KeyTransactionTransformData,
-  DTCriticalServiceTag,
   DTKeyTxSlo,
 } from './key-transaction.transformer.js';
 

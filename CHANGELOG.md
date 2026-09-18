@@ -105,6 +105,21 @@ Port of NewRelic-to-Dynatrace-Migration-Utilities `fix/live-validated-defects`
 - `tests/transformers/gen3-anomaly-detector-schema.test.ts`: required/forbidden
   fields, analyzer query is DQL not NRQL, no `dt.entity`, serialized POST body.
 
+### Changed (Platform SLOs)
+- **BREAKING (output): SLOs target the Platform SLO API** (`POST /platform/slo/v1/slos`)
+  instead of classic `builtin:monitoring.slo` metric-selector SLOs. `SLOTransformer`
+  (`transform` and `transformV3`) and `KeyTransactionTransformer` now return a
+  `DTPlatformSlo` body (`criteria[]`, `customSli.indicator` DQL grouped by
+  `dt.smartscape.service`, `tags`, `externalId`). `DTSlo` / `DTKeyTxSlo` are aliases
+  of `DTPlatformSlo`; the old `metricExpression` / `timeframe` / `filter` fields are gone.
+  Timeframes are `now-Nd` / `now-Nw` (months approximated as 30 days, with a warning).
+  New `src/transformers/slo-utils.ts` mirrors Python `_slo_utils.py` (strings pinned by
+  `tests/transformers/slo-parity.test.ts`).
+- **BREAKING:** `KeyTransactionTransformer` no longer emits `criticalServiceTag`
+  (`builtin:ownership.teams` has no `tag` / `entitySelector` fields, so the payload was
+  invalid). `DTCriticalServiceTag` is removed; a manual step explains Gen3 ownership
+  tags (`owner` / `dt.owner`). The workflow filters on `nr-migrated` only.
+
 ### Changed (Smartscape-first DQL)
 - **Smartscape-first DQL emission** (parity with NewRelic-to-Dynatrace-Migration-Utilities).
   Classic `dt.entity.*` is deprecated per Dynatrace's `dt-dql-essentials` / `dt-migration` skills.
