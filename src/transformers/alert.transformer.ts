@@ -1,14 +1,21 @@
 /**
  * Alert Transformer — Converts New Relic alert policies + conditions to
- * Dynatrace Gen3 Workflows (default) that fire on Davis problems raised
- * by a companion Metric Event (builtin:anomaly-detection.metric-events).
+ * Dynatrace Gen3 objects (default):
  *
- * Gen3 shape (default):
- *   - One or more Metric Events (one per NR condition), each driven by a
- *     DQL query extracted from the condition's NRQL.
- *   - One Workflow with a davis_problem trigger filtered by the tags
- *     applied to the Metric Events, aggregating the conditions into a
- *     single event-routing unit.
+ *   NR Alert Policy      -> Automation Workflow (one per policy; one per
+ *                           severity when the policy carries a non-uniform
+ *                           severity delay ladder)
+ *   NR NRQL Condition    -> Davis Anomaly Detector
+ *                           (`builtin:davis.anomaly-detectors`, v1.0.14 shape)
+ *   NR Notification Ch.  -> Workflow action task (via NotificationTransformer)
+ *
+ * Each detector names its events `[Migrated] <policy> | <condition>`; the
+ * policy's workflow uses a `davis-problem` trigger whose customFilter matches
+ * that prefix (`migratedEventFilter`). Detector queries are timeseries DQL
+ * compiled from the condition NRQL (see `nrqlToAnalyzerQuery`).
+ *
+ * Mirrors Python `transformers/alert_transformer.py` in
+ * NewRelic-to-Dynatrace-Migration-Utilities.
  *
  * Gen2 shape (LegacyAlertTransformer): the previous Alerting Profile +
  * Metric Event output. Preserved for opt-in parity.
@@ -17,6 +24,28 @@
 import { OPERATOR_MAP } from './mapping-rules.js';
 import type { TransformResult } from './types.js';
 import { failure } from './types.js';
+import {
+  DAVIS_ANALYZERS,
+  DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+  DETECTOR_SOURCE,
+  nrqlToAnalyzerQuery,
+  staticThresholdInput,
+  alertConditionFor,
+  type DTAnomalyDetector,
+  type DTKeyValue,
+} from './detector-utils.js';
+import {
+  davisProblemTrigger,
+  migratedEventFilter,
+  migratedEventName,
+  tasksListToDict,
+  type DTDavisProblemWorkflow,
+  type DTWorkflowTaskDefinition,
+} from './workflow-utils.js';
+import {
+  NotificationTransformer,
+  type NRNotificationChannelInput,
+} from './notification.transformer.js';
 
 // ---------------------------------------------------------------------------
 // Input
@@ -27,6 +56,17 @@ export interface NRAlertPolicyInput {
   readonly id?: string;
   readonly incidentPreference?: string;
   readonly conditions?: NRAlertCondition[];
+  /** Channels routed by this policy; each becomes a workflow task. */
+  readonly notificationChannels?: NRNotificationChannelInput[];
+  /** Per-severity notification delays (non-uniform delays fan out workflows). */
+  readonly severityRules?: NRSeverityRule[];
+}
+
+export interface NRSeverityRule {
+  readonly severity?: string;
+  readonly severityLevel?: string;
+  readonly delayMinutes?: number;
+  readonly delayInMinutes?: number;
 }
 
 export interface NRAlertCondition {
@@ -56,35 +96,12 @@ export interface NRAlertTerm {
 // ---------------------------------------------------------------------------
 
 /**
- * A Gen3 Workflow configured to fire on Davis problems. Mirrors the
- * shape accepted by the dynatrace_automation_workflow Terraform resource
- * / workflow settings schema.
+ * A Gen3 Workflow configured to fire on Davis problems.
+ *
+ * @deprecated Alias of `DTDavisProblemWorkflow` (the previous
+ * `trigger.event.config.davisProblem` shape was not an Automation API shape).
  */
-export interface DTWorkflow {
-  readonly title: string;
-  readonly description: string;
-  readonly isPrivate: boolean;
-  readonly trigger: {
-    readonly event: {
-      readonly active: boolean;
-      readonly config: {
-        readonly davisProblem: {
-          readonly categories: {
-            readonly availability: boolean;
-            readonly error: boolean;
-            readonly slowdown: boolean;
-            readonly resource: boolean;
-            readonly custom: boolean;
-            readonly monitoringUnavailable: boolean;
-          };
-          readonly entityTags: Record<string, string>;
-          readonly entityTagsMatch: 'all' | 'any';
-        };
-      };
-    };
-  };
-  readonly tasks: DTWorkflowTaskRef[];
-}
+export type DTWorkflow = DTDavisProblemWorkflow;
 
 /**
  * Placeholder task list — downstream callers (e.g., the consuming CLI
@@ -99,11 +116,11 @@ export interface DTWorkflowTaskRef {
 }
 
 /**
- * Gen3 Metric Event (builtin:anomaly-detection.metric-events) emitted
- * as the signal source for the Workflow. `entityTags` on the event
- * align with `trigger.event.config.davis_problem.entity_tags` on the
- * workflow so the workflow fires only for problems raised by this
- * Metric Event.
+ * Classic Metric Event (builtin:anomaly-detection.metric-events).
+ *
+ * @deprecated No longer emitted by the Gen3 `AlertTransformer` /
+ * `NonNrqlAlertConditionTransformer` — they emit `DTAnomalyDetector`
+ * (`builtin:davis.anomaly-detectors`). Kept exported for type compatibility.
  */
 export interface DTMetricEvent {
   readonly schemaId: 'builtin:anomaly-detection.metric-events';
@@ -121,8 +138,12 @@ export interface DTMetricEvent {
 }
 
 export interface AlertTransformData {
-  readonly workflow: DTWorkflow;
-  readonly metricEvents: DTMetricEvent[];
+  /** First (or only) workflow — equals `workflows[0]`. */
+  readonly workflow: DTDavisProblemWorkflow;
+  /** All workflows; >1 only when a severity-ladder fanout occurred. */
+  readonly workflows: DTDavisProblemWorkflow[];
+  /** One `builtin:davis.anomaly-detectors` envelope per NR condition. */
+  readonly anomalyDetectors: DTAnomalyDetector[];
 }
 
 // ---------------------------------------------------------------------------
@@ -137,15 +158,6 @@ export interface LegacyAlertTransformData {
 // ---------------------------------------------------------------------------
 // Shared helpers
 // ---------------------------------------------------------------------------
-
-function migrationTag(policyName: string): string {
-  return (
-    policyName
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '') || 'migrated-policy'
-  );
-}
 
 function extractMetricFromNrql(query: string): string | undefined {
   const queryLower = query.toLowerCase();
@@ -256,55 +268,80 @@ function buildQueryDefinition(
 // AlertTransformer (Gen3 default)
 // ---------------------------------------------------------------------------
 
+export interface ResolvedThreshold {
+  readonly threshold: number;
+  readonly alertCondition: string;
+  readonly samples: number;
+  readonly violating: number;
+}
+
+/**
+ * Pick the critical term (fallback: warning, then first term) and translate
+ * it to Davis static-threshold analyzer inputs. Mirrors Python
+ * `AlertTransformer._resolve_threshold`.
+ */
+export function resolveThreshold(
+  terms: readonly NRAlertTerm[],
+  warnings?: string[],
+): ResolvedThreshold {
+  if (terms.length === 0) {
+    return { threshold: 0, alertCondition: 'ABOVE', samples: 3, violating: 3 };
+  }
+  const critical = terms.find((t) => (t.priority ?? '').toLowerCase() === 'critical');
+  const warning = terms.find((t) => (t.priority ?? '').toLowerCase() === 'warning');
+  const active = critical ?? warning ?? terms[0]!;
+
+  // D23: the analyzer only accepts ABOVE / BELOW (verified live).
+  const alertCondition = alertConditionFor(active.operator ?? 'ABOVE', 'ABOVE', warnings);
+  const threshold = Number(active.threshold ?? 0);
+  const samples = Math.max(1, Math.floor((active.thresholdDuration ?? 300) / 60));
+  const violating = active.thresholdOccurrences === 'AT_LEAST_ONCE' ? 1 : samples;
+  return { threshold, alertCondition, samples, violating };
+}
+
+/** Disabled placeholder task used when a workflow has no actions. */
+export function placeholderTask(
+  description = 'No NR notification channels attached to the policy — add an action.',
+): DTWorkflowTaskDefinition {
+  return {
+    name: 'placeholder_action',
+    action: 'dynatrace.automations:run-javascript',
+    active: false,
+    description,
+    input: { script: 'export default () => ({ ok: true });' },
+    position: { x: 0, y: 1 },
+  };
+}
+
 export class AlertTransformer {
+  private readonly notificationTransformer = new NotificationTransformer();
+
   transform(nrPolicy: NRAlertPolicyInput): TransformResult<AlertTransformData> {
     const warnings: string[] = [];
     const errors: string[] = [];
 
     try {
       const policyName = nrPolicy.name ?? 'Unnamed Policy';
-      const tag = migrationTag(policyName);
-      const entityTags = { 'nr-migrated': tag };
+      const policyId = String(nrPolicy.id ?? '');
 
-      const metricEvents: DTMetricEvent[] = [];
-      const conditions = nrPolicy.conditions ?? [];
-
-      for (const condition of conditions) {
-        const ev = this.buildMetricEvent(condition, entityTags, warnings);
-        if (ev) metricEvents.push(ev);
+      const anomalyDetectors: DTAnomalyDetector[] = [];
+      for (const condition of nrPolicy.conditions ?? []) {
+        anomalyDetectors.push(this.buildAnomalyDetector(condition, policyName, warnings));
       }
-
-      const workflow: DTWorkflow = {
-        title: `[Migrated] ${policyName}`,
-        description: `Migrated from New Relic alert policy "${policyName}". Fires on Davis problems raised by companion Metric Events (tag nr-migrated=${tag}).`,
-        isPrivate: false,
-        trigger: {
-          event: {
-            active: true,
-            config: {
-              davisProblem: {
-                categories: {
-                  availability: true,
-                  error: true,
-                  slowdown: true,
-                  resource: true,
-                  custom: true,
-                  monitoringUnavailable: false,
-                },
-                entityTags,
-                entityTagsMatch: 'all',
-              },
-            },
-          },
-        },
-        tasks: [],
-      };
-
-      warnings.push(
-        `Workflow has no tasks attached. Wire NotificationTransformer output into workflow.tasks for policy "${policyName}".`,
+      const workflows = this.buildWorkflows(
+        policyName,
+        policyId,
+        nrPolicy.notificationChannels ?? [],
+        nrPolicy.severityRules ?? [],
+        warnings,
       );
 
-      return { success: true, data: { workflow, metricEvents }, warnings, errors };
+      return {
+        success: true,
+        data: { workflow: workflows[0]!, workflows, anomalyDetectors },
+        warnings,
+        errors,
+      };
     } catch (err) {
       return failure([`Transformation error: ${String(err)}`]);
     }
@@ -314,74 +351,167 @@ export class AlertTransformer {
     return policies.map((p) => this.transform(p));
   }
 
-  private buildMetricEvent(
+  // --- Davis anomaly detector (builtin:davis.anomaly-detectors) -------------
+
+  private buildAnomalyDetector(
     condition: NRAlertCondition,
-    entityTags: Record<string, string>,
+    policyName: string,
     warnings: string[],
-  ): DTMetricEvent | undefined {
+  ): DTAnomalyDetector {
     const conditionType = condition.conditionType ?? 'NRQL';
     const conditionName = condition.name ?? 'Unnamed Condition';
+    const description = condition.description ?? '';
+    let enabled = condition.enabled ?? true;
 
     if (conditionType !== 'NRQL') {
       warnings.push(
-        `Condition type '${conditionType}' for '${conditionName}' may require manual configuration`,
+        `Condition type '${conditionType}' for '${conditionName}' requires manual review; emitted a disabled detector skeleton.`,
       );
-      return {
-        schemaId: 'builtin:anomaly-detection.metric-events',
-        summary: `[Migrated - Manual Config Required] ${conditionName}`,
-        description:
-          `This alert was migrated from New Relic but requires manual configuration.\n` +
-          `Original condition type: ${conditionType}`,
-        enabled: false,
-        severity: 'CUSTOM_ALERT',
-        queryDefinition: {
-          type: 'METRIC_KEY',
-          metricKey: 'builtin:tech.generic.placeholder',
-          aggregation: 'AVG',
-          entityFilter: { dimensionKey: 'dt.entity.service', conditions: [] },
-          dimensionFilter: [],
-        },
-        monitoringStrategy: {
-          type: 'STATIC_THRESHOLD',
-          alertCondition: 'ABOVE',
-          threshold: 0,
-          samples: 3,
-          violatingSamples: 3,
-        },
-        eventTemplate: {
-          title: conditionName,
-          description: `Manual configuration required.`,
-        },
-        entityTags,
-      };
+      enabled = false;
     }
 
-    const description = condition.description ?? '';
-    const enabled = condition.enabled ?? true;
     const query = condition.nrql?.query ?? '';
     const aggregationWindow = condition.signal?.aggregationWindow ?? 60;
-    const terms = condition.terms ?? [];
-    const runbookUrl = condition.runbookUrl;
+    const { threshold, alertCondition, samples, violating } = resolveThreshold(
+      condition.terms ?? [],
+      warnings,
+    );
 
-    let descriptionText =
-      description || `Migrated from New Relic. Original NRQL: ${query.slice(0, 200)}`;
-    if (runbookUrl) {
-      descriptionText += `\n\nRunbook: ${runbookUrl}`;
+    // analyzer.input[query] is server-validated as DQL — never pass raw NRQL.
+    const dqlQuery = nrqlToAnalyzerQuery(query, warnings);
+
+    const properties: DTKeyValue[] = [
+      { key: 'event.type', value: 'CUSTOM_ALERT' },
+      { key: 'event.name', value: migratedEventName(policyName, conditionName) },
+      { key: 'source.policy', value: policyName },
+      { key: 'source.condition', value: conditionName },
+      { key: 'migrated.from', value: 'newrelic' },
+    ];
+    if (query) properties.push({ key: 'original.nrql', value: query });
+    properties.push({ key: 'evaluation.window', value: `${aggregationWindow}s` });
+    if (condition.runbookUrl) {
+      properties.push({ key: 'runbook.url', value: condition.runbookUrl });
     }
 
     return {
-      schemaId: 'builtin:anomaly-detection.metric-events',
-      summary: `[Migrated] ${conditionName}`,
-      description: descriptionText,
-      enabled,
-      severity: 'CUSTOM_ALERT',
-      queryDefinition: buildQueryDefinition(query, warnings),
-      monitoringStrategy: buildMonitoringStrategy(terms, aggregationWindow, query, warnings),
-      eventTemplate: {
+      schemaId: DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+      scope: 'environment',
+      value: {
+        enabled,
         title: `[Migrated] ${conditionName}`,
-        description: descriptionText,
+        description:
+          description ||
+          `Migrated from New Relic policy '${policyName}'. Original NRQL: ${query.slice(0, 200)}`,
+        source: DETECTOR_SOURCE,
+        executionSettings: {}, // actor (service user) injected at import/export — D16
+        analyzer: {
+          name: DAVIS_ANALYZERS.STATIC_THRESHOLD,
+          input: staticThresholdInput({
+            query: dqlQuery,
+            threshold,
+            alertCondition,
+            violatingSamples: violating,
+            slidingWindow: samples,
+          }),
+        },
+        eventTemplate: { properties },
       },
-      entityTags,
+    };
+  }
+
+  // --- Automation workflow(s) ----------------------------------------------
+
+  /**
+   * One workflow per policy; when `severityRules` carry non-uniform delays,
+   * fan out one workflow per severity (Phase 25 severity-ladder parity).
+   */
+  private buildWorkflows(
+    policyName: string,
+    policyId: string,
+    channels: readonly NRNotificationChannelInput[],
+    severityRules: readonly NRSeverityRule[],
+    warnings: string[],
+  ): DTDavisProblemWorkflow[] {
+    const delays = new Map<string, number>();
+    for (const r of severityRules) {
+      delays.set(
+        String(r.severity ?? r.severityLevel ?? '').toUpperCase(),
+        Number(r.delayMinutes ?? r.delayInMinutes ?? 0),
+      );
+    }
+    if (severityRules.length === 0 || new Set(delays.values()).size <= 1) {
+      return [
+        this.buildSingleWorkflow(policyName, policyId, channels, undefined, warnings),
+      ];
+    }
+
+    const workflows: DTDavisProblemWorkflow[] = [];
+    for (const [severity, delay] of delays) {
+      workflows.push(
+        this.buildSingleWorkflow(policyName, policyId, channels, severity, warnings, delay),
+      );
+    }
+    const delayDesc = [...delays].map(([k, v]) => `${k}=${v}`).join(', ');
+    warnings.push(
+      `Policy '${policyName}' has non-uniform severity delays (${delayDesc}). Emitting ${workflows.length} Workflows (one per severity) — Phase 25 severity-ladder fanout.`,
+    );
+    return workflows;
+  }
+
+  /**
+   * `policyName` is the base policy name; a severity-fanout workflow is titled
+   * `<policy> [SEVERITY]` but still links on the base name, because detector
+   * events carry the base policy name.
+   */
+  private buildSingleWorkflow(
+    policyName: string,
+    policyId: string,
+    channels: readonly NRNotificationChannelInput[],
+    severityFilter: string | undefined,
+    warnings: string[],
+    delayMinutes = 0,
+  ): DTDavisProblemWorkflow {
+    const tasks: DTWorkflowTaskDefinition[] = [];
+    channels.forEach((channel, idx) => {
+      const result = this.notificationTransformer.transform(channel);
+      if (!result.success || !result.data) {
+        warnings.push(...(result.errors.length > 0 ? result.errors : result.warnings));
+        return;
+      }
+      tasks.push({ ...result.data, position: { x: 0, y: idx + 1 } });
+      warnings.push(...result.warnings);
+    });
+
+    if (delayMinutes > 0) {
+      tasks.unshift({
+        name: `delay_${delayMinutes}m`,
+        action: 'dynatrace.automations:run-javascript',
+        active: true,
+        description: `Pre-notification delay of ${delayMinutes} minutes (migrated from NR severity ladder).`,
+        input: {
+          script: `export default async () => { await new Promise(r => setTimeout(r, ${delayMinutes * 60_000})); return { ok: true }; };`,
+        },
+        position: { x: 0, y: 0 },
+      });
+    }
+
+    if (tasks.length === 0) tasks.push(placeholderTask());
+
+    let description = `Migrated from New Relic alert policy '${policyName}' (id=${policyId}).`;
+    if (severityFilter) {
+      description += ` Severity-ladder workflow for ${severityFilter} (delay ${delayMinutes} min).`;
+    }
+
+    return {
+      title: severityFilter ? `[Migrated] ${policyName} [${severityFilter}]` : `[Migrated] ${policyName}`,
+      description,
+      isPrivate: false,
+      trigger: davisProblemTrigger(migratedEventFilter(policyName), {
+        severity: severityFilter ?? '',
+        warnings,
+      }),
+      // Gen3 Automation API requires `tasks` as a dict keyed by task id.
+      tasks: tasksListToDict(tasks),
     };
   }
 }

@@ -39,14 +39,18 @@ describe('KeyTransactionTransformer', () => {
 
   it('should emit Workflow tagged with nr-migrated', () => {
     const result = transformer.transform({ name: 'Checkout Submit' });
-    const tags = result.data!.workflow.trigger.event.config.davisProblem.entityTags;
+    const config = result.data!.workflow.trigger.eventTrigger.triggerConfiguration;
+    expect(config.type).toBe('davis-problem');
+    expect(config.value.customFilter).toBe('');
+    expect(Object.keys(result.data!.workflow.tasks)).toEqual(['placeholder_action']);
+    const tags = config.value.entityTags;
     expect(tags['nr-migrated']).toBe('checkout-submit');
     expect(tags['critical-service']).toBeUndefined();
   });
 
   it('should disable the Workflow when enabled=false', () => {
     const result = transformer.transform({ name: 'Kt', enabled: false });
-    expect(result.data!.workflow.trigger.event.active).toBe(false);
+    expect(result.data!.workflow.trigger.eventTrigger.isActive).toBe(false);
   });
 
   it('should carry a response-time threshold warning into warnings', () => {

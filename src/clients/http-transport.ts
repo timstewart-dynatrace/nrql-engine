@@ -20,6 +20,35 @@ import { withRetry, type RetryPolicy } from '../utils/http-retry.js';
 const logger = pino({ name: 'http-transport' });
 
 // ---------------------------------------------------------------------------
+// Gen3 tenant helpers (mirror Python clients/_http.py)
+// ---------------------------------------------------------------------------
+
+/**
+ * `Authorization` header value chosen by Dynatrace token prefix.
+ *
+ * - `dt0c01.*` — Classic API token → `Api-Token <t>`
+ * - `dt0s01.*` (OAuth2-issued) / `dt0s16.*` (Platform token) → `Bearer <t>`
+ *
+ * Sending a Platform token with the `Api-Token` scheme to an `.apps.` tenant
+ * returns `401 Unsupported authorization scheme 'Api-Token'`.
+ */
+export function tokenAuthHeader(token: string): string {
+  if (token.startsWith('dt0c01.')) return `Api-Token ${token}`;
+  return `Bearer ${token}`;
+}
+
+/**
+ * Settings 2.0 (classic environment API v2) base URL for the tenant generation.
+ * Gen3 SaaS hosts (containing `.apps.`) use `/platform/classic/environment-api/v2`
+ * (`/api/v2` returns 404 there); classic SaaS (`.live.`) and Managed keep `/api/v2`.
+ */
+export function settingsV2Base(environmentUrl: string): string {
+  const base = environmentUrl.replace(/\/+$/, '');
+  if (base.includes('.apps.')) return `${base}/platform/classic/environment-api/v2`;
+  return `${base}/api/v2`;
+}
+
+// ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 

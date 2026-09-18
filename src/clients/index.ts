@@ -20,6 +20,8 @@ export type {
 // Phase 16 split-client stack (P15-06)
 export {
   HttpTransport,
+  settingsV2Base,
+  tokenAuthHeader,
   type AuthHeaderProvider,
   type HttpRequest,
   type HttpResponse,

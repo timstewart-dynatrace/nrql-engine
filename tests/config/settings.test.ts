@@ -101,6 +101,16 @@ describe('DynatraceConfig', () => {
     });
     expect(c.environmentUrl).toBe('https://abc.live.dynatrace.com');
   });
+
+  it('should require DYNATRACE_DETECTOR_ACTOR to be a UUID when set (D16)', () => {
+    const base = { apiToken: 'dt0s16.x', environmentUrl: 'https://abc.apps.dynatrace.com' };
+    expect(() => DynatraceConfigSchema.parse({ ...base, detectorActor: 'not-a-uuid' })).toThrow(
+      /service-user UUID/,
+    );
+    const actor = '12345678-1234-1234-1234-123456789abc';
+    expect(DynatraceConfigSchema.parse({ ...base, detectorActor: actor }).detectorActor).toBe(actor);
+    expect(DynatraceConfigSchema.parse(base).detectorActor).toBeUndefined();
+  });
 });
 
 describe('MigrationConfig', () => {

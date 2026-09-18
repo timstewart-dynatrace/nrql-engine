@@ -10,7 +10,7 @@
  *   2. Tag the service with ownership / criticality (manual step — Gen3
  *      ownership is a `owner` / `dt.owner` key-value tag on the entity,
  *      not a `builtin:ownership.teams` object).
- *   3. Emit a companion Workflow (davis_problem trigger) that fires when
+ *   3. Emit a companion Workflow (`davis-problem` trigger) that fires when
  *      the SLO's burn-rate crosses threshold, tagged with
  *      `nr-migrated=<slug>` so NotificationTransformer output can slot
  *      into it later.
@@ -18,7 +18,12 @@
 
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
-import type { DTWorkflow } from './alert.transformer.js';
+import { placeholderTask } from './alert.transformer.js';
+import {
+  davisProblemTrigger,
+  tasksListToDict,
+  type DTDavisProblemWorkflow,
+} from './workflow-utils.js';
 import { buildPlatformSlo, latencyIndicator, type DTPlatformSlo } from './slo-utils.js';
 
 // ---------------------------------------------------------------------------
@@ -45,7 +50,7 @@ export type DTKeyTxSlo = DTPlatformSlo;
 
 export interface KeyTransactionTransformData {
   readonly slo: DTKeyTxSlo;
-  readonly workflow: DTWorkflow;
+  readonly workflow: DTDavisProblemWorkflow;
   readonly manualSteps: string[];
 }
 
@@ -59,7 +64,7 @@ function slug(s: string): string {
 
 const MANUAL_STEPS: string[] = [
   'Review the emitted SLO target — it is derived from NR Apdex T-value or response-time threshold; some key transactions may need a custom DQL indicator (e.g. spans filtered to the endpoint).',
-  'Wire NotificationTransformer output into the emitted Workflow.tasks array so SLO burn-rate problems route to on-call.',
+  'Wire NotificationTransformer output into the emitted Workflow.tasks dict so SLO burn-rate problems route to on-call.',
   'If the key transaction covered a specific endpoint (not whole service), narrow the SLO indicator (e.g. fetch spans | filter endpoint.name == "…").',
   "Mark the service as owned/critical with Gen3 ownership tags (key `owner` or `dt.owner`, value = team identifier) and a criticality tag, via Kubernetes labels, host properties, DT_CUSTOM_PROP, or the Custom tags API. The Workflow filters on the `nr-migrated=<slug>` tag, which must also be applied.",
 ];
@@ -101,30 +106,20 @@ export class KeyTransactionTransformer {
         tags: ['MigratedFromNR:true', `key_transaction:${tag}`],
       });
 
-      const workflow: DTWorkflow = {
+      const workflow: DTDavisProblemWorkflow = {
         title: `[Migrated KeyTx] ${name}`,
         description: `Fires when the SLO for key transaction '${name}' burns budget.`,
         isPrivate: false,
-        trigger: {
-          event: {
-            active: input.enabled ?? true,
-            config: {
-              davisProblem: {
-                categories: {
-                  availability: true,
-                  error: true,
-                  slowdown: true,
-                  resource: false,
-                  custom: false,
-                  monitoringUnavailable: false,
-                },
-                entityTags: { 'nr-migrated': tag },
-                entityTagsMatch: 'all',
-              },
-            },
-          },
-        },
-        tasks: [],
+        trigger: davisProblemTrigger('', {
+          entityTags: { 'nr-migrated': tag },
+          active: input.enabled ?? true,
+        }),
+        // Gen3 Automation API requires `tasks` as a dict keyed by task id.
+        tasks: tasksListToDict([
+          placeholderTask(
+            'Attach notification tasks (email / slack / pagerduty) using NotificationTransformer-emitted task nodes.',
+          ),
+        ]),
       };
 
       return success(

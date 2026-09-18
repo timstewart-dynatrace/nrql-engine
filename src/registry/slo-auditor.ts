@@ -226,8 +226,25 @@ export class SLOAuditor {
     return this.platformRequest(url);
   }
 
-  async updateSlo(sloId: string, payload: Record<string, unknown>): Promise<boolean> {
-    const url = `${this.platformUrl}/platform/slo/v1/slos/${sloId}`;
+  /**
+   * Update a Gen3 Platform SLO via PUT. The API requires the current
+   * optimistic-locking version (query param `optimistic-locking-version`,
+   * verified live — D22); it is looked up when not supplied.
+   */
+  async updateSlo(
+    sloId: string,
+    payload: Record<string, unknown>,
+    version?: string,
+  ): Promise<boolean> {
+    let lockVersion = version;
+    if (!lockVersion) {
+      const detailVersion = (await this.fetchSloDetail(sloId))?.['version'];
+      lockVersion = detailVersion === undefined || detailVersion === null ? undefined : String(detailVersion);
+    }
+    let url = `${this.platformUrl}/platform/slo/v1/slos/${sloId}`;
+    if (lockVersion) {
+      url += `?${new URLSearchParams({ 'optimistic-locking-version': lockVersion }).toString()}`;
+    }
     const result = await this.platformRequest(url, 'PUT', payload);
     return result !== undefined;
   }
@@ -531,7 +548,12 @@ export class SLOAuditor {
           if (detail['tags']) updatePayload['tags'] = detail['tags'];
           if (detail['segments']) updatePayload['segments'] = detail['segments'];
 
-          const updated = await this.updateSlo(sloId, updatePayload);
+          const detailVersion = detail['version'];
+          const updated = await this.updateSlo(
+            sloId,
+            updatePayload,
+            detailVersion === undefined || detailVersion === null ? undefined : String(detailVersion),
+          );
           if (updated) {
             logger.info({ sloId }, 'SLO fixed');
             results.fixed += 1;

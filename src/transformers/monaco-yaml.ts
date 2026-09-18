@@ -12,6 +12,8 @@
  * a single YAML document.
  */
 
+import { DAVIS_ANOMALY_DETECTOR_SCHEMA_ID, withDetectorActor } from './detector-utils.js';
+
 // ---------------------------------------------------------------------------
 // Input
 // ---------------------------------------------------------------------------
@@ -109,15 +111,21 @@ export function toMonacoYaml(
         .replace(/[^a-z0-9]+/g, '-')
         .replace(/^-+|-+$/g, '') || 'entry';
 
+    // D16: detector executionSettings.actor comes from the Monaco environment.
+    const isDetector = env.schemaId === DAVIS_ANOMALY_DETECTOR_SCHEMA_ID;
+    const payload = isDetector ? withDetectorActor(env, '{{ .detectorActor }}').value : env.value;
+    const parameters: Record<string, unknown> = { scope: env.scope ?? 'environment' };
+    if (isDetector) {
+      parameters['detectorActor'] = { type: 'environment', name: 'DYNATRACE_DETECTOR_ACTOR' };
+    }
+
     const monacoBlock: Record<string, unknown> = {
       configs: [
         {
           id: slug,
           config: {
             name: env.displayName ?? slug,
-            parameters: {
-              scope: env.scope ?? 'environment',
-            },
+            parameters,
             template: `${slug}.json`,
           },
           type: {
@@ -134,7 +142,7 @@ export function toMonacoYaml(
     // append the payload as a separate `# value:` comment so operators can
     // paste the JSON into the generated template file.
     const yaml = emitValue(monacoBlock, '', step).replace(/^\n/, '');
-    const jsonPayload = JSON.stringify(env.value, null, 2);
+    const jsonPayload = JSON.stringify(payload, null, 2);
     return `${yaml}\n# template payload (save as ${slug}.json):\n# ${jsonPayload.split('\n').join('\n# ')}`;
   });
 

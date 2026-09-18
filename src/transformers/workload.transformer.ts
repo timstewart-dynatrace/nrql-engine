@@ -5,9 +5,10 @@
  *
  * Gen3 Segment (builtin:segment):
  *   - name, description, isPublic
- *   - includes.items[{ dataObject, filter }] — filter is a tree of
- *     Group/Statement nodes (same shape accepted by the Grail filter
- *     editor and dynatrace_segment Terraform resource).
+ *   - includes.items[{ dataObject: "_all_entities", filter }] — filter is a
+ *     tree of Group/Statement nodes keyed on Smartscape node fields
+ *     `type` / `id` / `name` (the form live Gen3 segments use; D14). Each
+ *     entity group is `type AND (id OR id …)` / `type AND (name OR name …)`.
  *
  * Workloads do not map 1:1 to Segments (Workloads are entity sets;
  * Segments filter records in Grail pipelines). The default output
@@ -37,6 +38,11 @@ export interface NRWorkloadInput {
 export interface NRWorkloadEntity {
   readonly type?: string;
   readonly name?: string;
+  /**
+   * Entity id. Dynatrace-style ids (e.g. `HOST-0123ABCD`) become `id`
+   * statements; NR GUIDs are not Dynatrace ids and fall back to `name`.
+   */
+  readonly guid?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,21 +108,38 @@ const ENTITY_TYPE_MAP: Record<string, string | undefined> = {
   DASHBOARD: undefined,
 };
 
-const ENTITY_TYPE_TO_DATA_OBJECT: Record<string, string> = {
-  SERVICE: 'spans',
-  APPLICATION: 'bizevents',
-  MOBILE_APPLICATION: 'bizevents',
-  HOST: 'logs',
-  SYNTHETIC_TEST: 'bizevents',
+/**
+ * NR entity type -> Smartscape node type for Gen3 segment filters.
+ * Synthetic monitors have no available Smartscape node type yet.
+ */
+const SEGMENT_ENTITY_TYPE_MAP: Record<string, string | undefined> = {
+  APPLICATION: 'SERVICE',
+  APM_APPLICATION: 'SERVICE',
+  BROWSER_APPLICATION: 'FRONTEND',
+  MOBILE_APPLICATION: 'FRONTEND',
+  HOST: 'HOST',
+  INFRASTRUCTURE_HOST: 'HOST',
+  SYNTHETIC_MONITOR: undefined,
+  WORKLOAD: undefined,
+  DASHBOARD: undefined,
 };
 
-const ENTITY_TYPE_TO_NAME_FIELD: Record<string, string> = {
-  SERVICE: 'service.name',
-  APPLICATION: 'application.name',
-  MOBILE_APPLICATION: 'application.name',
-  HOST: 'host.name',
-  SYNTHETIC_TEST: 'synthetic.name',
-};
+export const SEGMENT_DATA_OBJECT = '_all_entities';
+
+/** Dynatrace entity ids (e.g. HOST-0123ABCD). NR GUIDs are base64 and never match. */
+export const DT_ENTITY_ID_RE = /^[A-Z][A-Z0-9_]*-[0-9A-F]+$/;
+
+function statement(
+  key: string,
+  op: '=' | '!=' | 'contains' | 'startsWith',
+  value: string,
+): DTSegmentFilterNode {
+  return { type: 'Statement', key: { value: key }, operator: { value: op }, value: { value } };
+}
+
+function slugify(text: string): string {
+  return text.toLowerCase().replace(/ /g, '-').replace(/[^a-z0-9-]/g, '');
+}
 
 const MANUAL_STEPS = [
   'Design a bucket-scoped IAM policy that grants access based on this segment (Gen3 IAM v2 policies).',
@@ -137,42 +160,17 @@ export class WorkloadTransformer {
       const collection = nrWorkload.collection ?? [];
       const searchQueries = nrWorkload.entitySearchQueries ?? [];
 
-      const byDataObject = new Map<string, DTSegmentFilterNode[]>();
+      const children: DTSegmentFilterNode[] = [
+        ...this.collectionGroups(collection, warnings),
+        ...this.queryGroups(searchQueries, warnings),
+      ];
 
-      if (collection.length > 0) {
-        this.addCollectionFilters(collection, byDataObject, warnings);
-      }
-      if (searchQueries.length > 0) {
-        this.addQueryFilters(searchQueries, byDataObject, warnings);
-      }
-
-      const includes: DTSegmentInclude[] = [];
-      for (const [dataObject, children] of byDataObject) {
-        if (children.length === 0) continue;
-        const filter: DTSegmentFilterNode =
-          children.length === 1
-            ? children[0]!
-            : { type: 'Group', logicalOperator: 'OR', children };
-        includes.push({ dataObject, filter });
-      }
-
-      if (includes.length === 0) {
-        const tagValue = workloadName
-          .toLowerCase()
-          .replace(/ /g, '-')
-          .replace(/[^a-z0-9-]/g, '');
+      if (children.length === 0) {
+        const tagValue = slugify(workloadName);
         warnings.push(
           `Workload '${workloadName}' could not be converted to specific filters. A tag-based fallback was emitted; apply tag migrated-workload=${tagValue} to the relevant entities.`,
         );
-        includes.push({
-          dataObject: '_all_data_object',
-          filter: {
-            type: 'Statement',
-            key: { value: 'migrated-workload' },
-            operator: { value: '=' },
-            value: { value: tagValue },
-          },
-        });
+        children.push(statement('tags.migrated-workload', '=', tagValue));
       }
 
       warnings.push(...MANUAL_STEPS);
@@ -182,7 +180,14 @@ export class WorkloadTransformer {
         name: `[Migrated] ${workloadName}`,
         description: `Migrated from New Relic Workload: ${workloadName}`,
         isPublic: false,
-        includes: { items: includes },
+        includes: {
+          items: [
+            {
+              dataObject: SEGMENT_DATA_OBJECT,
+              filter: { type: 'Group', logicalOperator: 'OR', children },
+            },
+          ],
+        },
         manualSteps: MANUAL_STEPS,
       };
 
@@ -196,98 +201,86 @@ export class WorkloadTransformer {
     return workloads.map((w) => this.transform(w));
   }
 
-  private addCollectionFilters(
+  /**
+   * Prefer entity-id statements when the collection carries Dynatrace entity
+   * ids; otherwise match the exact node name (NR GUIDs are not Dynatrace ids).
+   */
+  private collectionGroups(
     collection: readonly NRWorkloadEntity[],
-    byDataObject: Map<string, DTSegmentFilterNode[]>,
     warnings: string[],
-  ): void {
+  ): DTSegmentFilterNode[] {
+    const byTypeIds = new Map<string, string[]>();
+    const byTypeNames = new Map<string, string[]>();
     for (const entity of collection) {
       const entityType = entity.type ?? 'UNKNOWN';
       const entityName = entity.name ?? '';
-      const dtType = ENTITY_TYPE_MAP[entityType];
+      const guid = entity.guid ?? '';
+      const dtType = SEGMENT_ENTITY_TYPE_MAP[entityType];
 
       if (!dtType) {
         warnings.push(
-          `Entity type '${entityType}' for '${entityName}' does not have a Gen3 filter equivalent; skipped.`,
+          `Entity type '${entityType}' for '${entityName}' has no Gen3 segment mapping.`,
         );
         continue;
       }
-
-      const dataObject = ENTITY_TYPE_TO_DATA_OBJECT[dtType] ?? 'logs';
-      const nameField = ENTITY_TYPE_TO_NAME_FIELD[dtType] ?? 'entity.name';
-
-      const bucket = byDataObject.get(dataObject) ?? [];
-      bucket.push({
-        type: 'Statement',
-        key: { value: nameField },
-        operator: { value: '=' },
-        value: { value: entityName },
-      });
-      byDataObject.set(dataObject, bucket);
+      if (guid && DT_ENTITY_ID_RE.test(guid)) {
+        byTypeIds.set(dtType, [...(byTypeIds.get(dtType) ?? []), guid]);
+      } else if (entityName) {
+        if (guid) {
+          warnings.push(
+            `Entity '${entityName}' has an NR GUID, not a Dynatrace entity ID; segment matches it by name.`,
+          );
+        }
+        byTypeNames.set(dtType, [...(byTypeNames.get(dtType) ?? []), entityName]);
+      } else {
+        warnings.push(
+          `Entity of type '${entityType}' has neither a Dynatrace ID nor a name; skipped.`,
+        );
+      }
     }
+
+    const groups: DTSegmentFilterNode[] = [];
+    const group = (dtType: string, key: 'id' | 'name', values: string[]): DTSegmentFilterNode => ({
+      // D14: type AND (value OR value ...) — OR matched every node of the type.
+      type: 'Group',
+      logicalOperator: 'AND',
+      children: [
+        statement('type', '=', dtType),
+        {
+          type: 'Group',
+          logicalOperator: 'OR',
+          children: values.map((v) => statement(key, '=', v)),
+        },
+      ],
+    });
+    for (const [dtType, ids] of byTypeIds) groups.push(group(dtType, 'id', ids));
+    for (const [dtType, names] of byTypeNames) groups.push(group(dtType, 'name', names));
+    return groups;
   }
 
-  private addQueryFilters(
+  private queryGroups(
     queries: ReadonlyArray<{ query?: string }>,
-    byDataObject: Map<string, DTSegmentFilterNode[]>,
     warnings: string[],
-  ): void {
+  ): DTSegmentFilterNode[] {
+    const groups: DTSegmentFilterNode[] = [];
     for (const queryObj of queries) {
       const query = queryObj.query ?? '';
       const parsed = parseEntityQuery(query);
-
-      if (!parsed.entityType) {
-        warnings.push(
-          `Could not parse query: ${query.slice(0, 100)}... Manual segment design may be required.`,
-        );
-        continue;
-      }
-
-      const dtType = ENTITY_TYPE_MAP[parsed.entityType];
+      const dtType = parsed.entityType ? SEGMENT_ENTITY_TYPE_MAP[parsed.entityType] : undefined;
       if (!dtType) {
         warnings.push(
-          `Query entity type '${parsed.entityType}' could not be mapped to Gen3.`,
+          `Could not map entity search query to a Gen3 segment filter: '${query.slice(0, 100)}'`,
         );
         continue;
       }
-
-      const dataObject = ENTITY_TYPE_TO_DATA_OBJECT[dtType] ?? 'logs';
-      const nameField = ENTITY_TYPE_TO_NAME_FIELD[dtType] ?? 'entity.name';
-
-      const children: DTSegmentFilterNode[] = [];
-      if (parsed.nameFilter) {
-        children.push({
-          type: 'Statement',
-          key: { value: nameField },
-          operator: { value: 'contains' },
-          value: { value: parsed.nameFilter },
-        });
-      }
+      const children: DTSegmentFilterNode[] = [statement('type', '=', dtType)];
+      if (parsed.nameFilter) children.push(statement('name', 'contains', parsed.nameFilter));
       for (const [tagKey, tagValue] of parsed.tags) {
-        children.push({
-          type: 'Statement',
-          key: { value: tagKey },
-          operator: { value: '=' },
-          value: { value: tagValue },
-        });
+        children.push(statement(`tags.${tagKey}`, '=', tagValue));
       }
-
-      const bucket = byDataObject.get(dataObject) ?? [];
-      if (children.length === 0) {
-        // Type-only filter: carry the entity-type itself as a Statement.
-        bucket.push({
-          type: 'Statement',
-          key: { value: 'dt.entity.type' },
-          operator: { value: '=' },
-          value: { value: dtType },
-        });
-      } else if (children.length === 1) {
-        bucket.push(children[0]!);
-      } else {
-        bucket.push({ type: 'Group', logicalOperator: 'AND', children });
-      }
-      byDataObject.set(dataObject, bucket);
+      groups.push({ type: 'Group', logicalOperator: 'AND', children });
     }
+    return groups;
   }
 }
 

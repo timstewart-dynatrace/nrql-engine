@@ -69,4 +69,21 @@ describe('toMonacoYaml', () => {
     );
     expect(yaml).toContain('    id:');
   });
+
+  it('should parameterise the detector actor from the Monaco environment (D16)', () => {
+    const yaml = toMonacoYaml({
+      schemaId: 'builtin:davis.anomaly-detectors',
+      displayName: 'Det',
+      scope: 'environment',
+      value: { title: 'Det', executionSettings: {} },
+    });
+    expect(yaml).toContain('detectorActor:');
+    expect(yaml).toContain('name: DYNATRACE_DETECTOR_ACTOR');
+    expect(yaml).toContain('"actor": "{{ .detectorActor }}"');
+  });
+
+  it('should not add detectorActor to other schemas', () => {
+    const yaml = toMonacoYaml({ schemaId: 'builtin:alerting.profile', value: { name: 'x' } });
+    expect(yaml).not.toContain('detectorActor');
+  });
 });

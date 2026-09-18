@@ -56,7 +56,7 @@ describe('Smartscape-first emission parity', () => {
 
   it('maps entityName / entity.name to a raw dimension by context', () => {
     const cases: Record<string, string> = {
-      "SELECT count(*) FROM Transaction WHERE entityName = 'svc'": 'service.name == "svc"',
+      "SELECT count(*) FROM Transaction WHERE entityName = 'svc'": 'dt.service.name == "svc"',
       'SELECT average(cpuPercent) FROM SystemSample FACET entityName': 'by: {host.name}',
       'SELECT average(apm.service.transaction.duration) FROM Metric FACET entity.name':
         'by: {dt.service.name}',

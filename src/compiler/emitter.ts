@@ -334,8 +334,20 @@ export class DQLEmitter {
    * from the dt-migration skill), chosen by query context.
    */
   static readonly ENTITY_NAME_FIELDS: ReadonlySet<string> = new Set(['entityname', 'entity.name']);
-  static readonly ENTITY_NAME_SPAN_FIELD = 'service.name';
+  /**
+   * OneAgent spans carry dt.service.name but not service.name (verified live,
+   * D10); logs carry service.name.
+   */
+  static readonly ENTITY_NAME_SPAN_FIELD = 'dt.service.name';
+  static readonly ENTITY_NAME_LOG_FIELD = 'service.name';
   static readonly ENTITY_NAME_METRIC_FIELD = 'dt.service.name';
+  /** NRQL service-identity fields mapped by context regardless of fieldMap overrides. */
+  static readonly SERVICE_NAME_FIELDS: ReadonlySet<string> = new Set(['appname']);
+  /**
+   * NR `error` on Transaction/Span -> OneAgent request failure flag (D12);
+   * otel.status_code is unset on OneAgent spans.
+   */
+  static readonly SPAN_ERROR_FIELD = 'request.is_failed';
   static readonly ENTITY_NAME_HOST_FIELD = 'host.name';
   static readonly ENTITY_NAME_K8S_FIELD = 'k8s.workload.name';
   /** NR infra samples whose entityName is the host. */
@@ -1388,7 +1400,7 @@ export class DQLEmitter {
       .replace(/_/g, '')
       .replace(/-/g, '');
     if (fromType === 'transactionerror') {
-      parts.push('| filter otel.status_code == "ERROR"');
+      parts.push(`| filter ${DQLEmitter.SPAN_ERROR_FIELD} == true`);
     }
 
     // 2. Filter -- extract subqueries for separate lookup steps
@@ -2420,9 +2432,12 @@ export class DQLEmitter {
 
   private emitCondition(cond: Condition): string {
     if (cond.type === 'logical') {
-      const left = this.emitCondition(cond.left);
-      const right = this.emitCondition(cond.right);
       const op = cond.op; // already lowercase 'and' | 'or'
+      let left = this.emitCondition(cond.left);
+      let right = this.emitCondition(cond.right);
+      // DQL `and` binds tighter than `or`: keep mixed-operator groups explicit (D13).
+      if (cond.left.type === 'logical' && cond.left.op !== op) left = `(${left})`;
+      if (cond.right.type === 'logical' && cond.right.op !== op) right = `(${right})`;
       return `${left} ${op} ${right}`;
     }
 
@@ -2488,6 +2503,11 @@ export class DQLEmitter {
 
     if (cond.type === 'isNull') {
       const expr = this.emitExpr(cond.expr);
+      if (expr === DQLEmitter.SPAN_ERROR_FIELD) {
+        // NR `error IS [NOT] NULL` means "had / had no error"; request.is_failed is
+        // present on every request span, so a null check would match everything.
+        return cond.negated ? `${expr} == true` : `${expr} != true`;
+      }
       return cond.negated ? `isNotNull(${expr})` : `isNull(${expr})`;
     }
 
@@ -2655,13 +2675,19 @@ export class DQLEmitter {
       }
     }
 
-    // Entity name: raw dimension, chosen by query context
+    // Entity / service name: raw dimension, chosen by query context
     if (
-      DQLEmitter.ENTITY_NAME_FIELDS.has(low) &&
-      this.fieldMap[name] === undefined &&
-      this.fieldMap[low] === undefined
+      DQLEmitter.SERVICE_NAME_FIELDS.has(low) ||
+      (DQLEmitter.ENTITY_NAME_FIELDS.has(low) &&
+        this.fieldMap[name] === undefined &&
+        this.fieldMap[low] === undefined)
     ) {
       return this.entityNameField();
+    }
+
+    // Span error flag
+    if (low === 'error' && this.queryClass === 'spans') {
+      return DQLEmitter.SPAN_ERROR_FIELD;
     }
 
     // Check exact match first
@@ -2687,6 +2713,7 @@ export class DQLEmitter {
       return DQLEmitter.ENTITY_NAME_K8S_FIELD;
     }
     if (this.queryClass === 'METRIC') return DQLEmitter.ENTITY_NAME_METRIC_FIELD;
+    if (this.queryClass === 'logs') return DQLEmitter.ENTITY_NAME_LOG_FIELD;
     return DQLEmitter.ENTITY_NAME_SPAN_FIELD;
   }
 

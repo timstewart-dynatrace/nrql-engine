@@ -13,6 +13,7 @@
  */
 
 import { INFRA_METRIC_MAP, INFRA_OPERATOR_MAP } from './mapping-rules.js';
+import { alertConditionFor } from './detector-utils.js';
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
 
@@ -166,7 +167,10 @@ export class InfrastructureTransformer {
       description: `Migrated from NR infra condition: ${name}`,
       metricId,
       enabled: condition.enabled ?? true,
-      alertCondition: INFRA_OPERATOR_MAP[comparison] ?? 'ABOVE',
+      // D6: `equal` has no threshold equivalent (EQUALS is not a valid condition).
+      alertCondition:
+        INFRA_OPERATOR_MAP[String(comparison).toLowerCase()] ??
+        alertConditionFor(comparison, 'ABOVE', warnings),
       alertConditionValue: thresholdValue,
       samples: duration,
       violatingSamples: duration,
