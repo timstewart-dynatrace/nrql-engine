@@ -167,10 +167,19 @@ export class DocumentClient {
     });
   }
 
-  async delete(id: string, preferOauth = true): Promise<HttpResponse> {
+  /**
+   * Delete a document. `optimisticVersion` is sent as the kebab-case
+   * `optimistic-locking-version` query param (verified live — D22).
+   */
+  async delete(
+    id: string,
+    preferOauth = true,
+    optimisticVersion?: string,
+  ): Promise<HttpResponse> {
     return this.options.transport.request({
       method: 'DELETE',
       url: `${this.platformUrl()}/platform/document/v1/documents/${id}`,
+      ...(optimisticVersion ? { params: { 'optimistic-locking-version': optimisticVersion } } : {}),
       authProvider: pickAuth(this.options, preferOauth),
     });
   }

@@ -199,7 +199,7 @@ describe('NRQLCompiler', () => {
         "SELECT filter(average(duration), WHERE error IS NOT NULL) FROM Transaction TIMESERIES"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('avgIf(duration, isNotNull(error))');
+      expect(result.dql).toContain('avgIf(duration, request.is_failed == true)');
     });
 
     it('should convert rate to count with warning', () => {
@@ -246,7 +246,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE error IS NOT NULL AND host IS NULL"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('isNotNull(error)');
+      expect(result.dql).toContain('request.is_failed == true');
       expect(result.dql).toContain('isNull(host.name)');
     });
 
@@ -255,7 +255,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE appName IN ('a', 'b', 'c')"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('in(service.name, {"a", "b", "c"})');
+      expect(result.dql).toContain('in(dt.service.name, {"a", "b", "c"})');
     });
 
     it('should convert NOT IN', () => {
@@ -263,7 +263,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE appName NOT IN ('x')"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('not in(service.name, {"x"})');
+      expect(result.dql).toContain('not in(dt.service.name, {"x"})');
     });
 
     it('should convert LIKE %x% to contains', () => {
@@ -287,8 +287,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE (appName = 'a' OR appName = 'b') AND error IS NOT NULL"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('service.name == "a" or service.name == "b"');
-      expect(result.dql).toContain('isNotNull(error)');
+      expect(result.dql).toContain('(dt.service.name == "a" or dt.service.name == "b") and request.is_failed == true');
     });
   });
 
@@ -370,7 +369,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction FACET appName as Service, host as Host"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('Service=service.name');
+      expect(result.dql).toContain('Service=dt.service.name');
       expect(result.dql).toContain('Host=host.name');
     });
 
@@ -386,7 +385,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE error = true TIMESERIES"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('error == true');
+      expect(result.dql).toContain('request.is_failed == true');
     });
   });
 
@@ -642,7 +641,8 @@ describe('NRQLCompiler', () => {
       expect(result.success).toBe(true);
       expect(result.dql).toContain('fetch spans');
       expect(result.dql).toContain('makeTimeseries');
-      expect(result.dql).toContain('dt.entity.name');
+      expect(result.dql).toContain('service.name == "my-api"');
+      expect(result.dql).not.toContain('dt.entity');
     });
 
     it('should handle FROM Log SELECT', () => {
@@ -693,7 +693,7 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM TransactionError WHERE error IS NOT FALSE AND appId IN ('123')"
       );
       expect(result.success).toBe(true);
-      expect(result.dql).toContain('error != false');
+      expect(result.dql).toContain('request.is_failed != false');
       expect(result.dql).toContain('appId');
     });
 
@@ -1199,13 +1199,13 @@ describe('NRQLCompiler', () => {
     it('should produce valid DQL for uniqueCount to countDistinctExact', () => {
       const result = compiler.compile("SELECT uniqueCount(appName) FROM Transaction");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('countDistinctExact(service.name)');
+      expect(codeLines(result.dql)).toContain('countDistinctExact(dt.service.name)');
     });
 
     it('should produce valid DQL for uniques to collectDistinct', () => {
       const result = compiler.compile("SELECT uniques(appName) FROM Transaction");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('collectDistinct(service.name)');
+      expect(codeLines(result.dql)).toContain('collectDistinct(dt.service.name)');
     });
 
     it('should produce valid DQL for latest to takeLast', () => {
@@ -1331,7 +1331,7 @@ describe('NRQLCompiler', () => {
     it('should convert concat', () => {
       const result = compiler.compile("SELECT concat(appName, '-', name) FROM Transaction LIMIT 10");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('concat(service.name');
+      expect(codeLines(result.dql)).toContain('concat(dt.service.name');
     });
 
     it('should convert abs', () => {
@@ -1470,12 +1470,13 @@ describe('NRQLCompiler', () => {
       expect(codeLines(result.dql)).toContain('fetch spans');
     });
 
-    it('should map TransactionError to fetch spans with otel status', () => {
+    it('should map TransactionError to fetch spans with request.is_failed', () => {
       const result = compiler.compile("SELECT count(*) FROM TransactionError");
       assertValidDql(result);
       const code = codeLines(result.dql);
       expect(code).toContain('fetch spans');
-      expect(code).toContain('otel.status_code');
+      expect(code).toContain('request.is_failed == true');
+      expect(code).not.toContain('otel.status_code');
     });
 
     it('should map Span to fetch spans', () => {
@@ -1798,25 +1799,25 @@ describe('NRQLCompiler', () => {
     it('should handle IS NULL', () => {
       const result = compiler.compile("SELECT count(*) FROM Transaction WHERE error IS NULL");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('isNull(');
+      expect(codeLines(result.dql)).toContain('request.is_failed != true');
     });
 
     it('should handle IS NOT NULL', () => {
       const result = compiler.compile("SELECT count(*) FROM Transaction WHERE error IS NOT NULL");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('isNotNull(');
+      expect(codeLines(result.dql)).toContain('request.is_failed == true');
     });
 
     it('should handle IN list', () => {
       const result = compiler.compile("SELECT count(*) FROM Transaction WHERE appName IN ('a', 'b', 'c')");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('in(service.name, {"a", "b", "c"})');
+      expect(codeLines(result.dql)).toContain('in(dt.service.name, {"a", "b", "c"})');
     });
 
     it('should handle NOT IN list', () => {
       const result = compiler.compile("SELECT count(*) FROM Transaction WHERE appName NOT IN ('x', 'y')");
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('not in(service.name, {"x", "y"})');
+      expect(codeLines(result.dql)).toContain('not in(dt.service.name, {"x", "y"})');
     });
 
     it('should convert LIKE %x% to contains', () => {
@@ -2127,7 +2128,7 @@ describe('NRQLCompiler', () => {
         "WHERE appName IN ('api-1', 'api-2', 'api-3') FACET appName TIMESERIES"
       );
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('in(service.name');
+      expect(codeLines(result.dql)).toContain('in(dt.service.name');
     });
 
     it('should handle subquery trace correlation', () => {
@@ -2239,7 +2240,10 @@ describe('NRQLCompiler', () => {
       const result = compiler.compile("SELECT latest(isReady) FROM K8sPodSample WHERE clusterName = 'prod'");
       assertValidDql(result);
       const code = codeLines(result.dql);
-      expect(code).toContain('entity');
+      expect(code.startsWith('smartscapeNodes K8S_DEPLOYMENT')).toBe(true);
+      expect(code).toContain('readyReplicas');
+      expect(code).toContain('k8s.cluster.name == "prod"');
+      expect(code).not.toContain('dt.entity');
       expect(code).not.toContain('timeseries');
     });
   });
@@ -2269,7 +2273,8 @@ describe('NRQLCompiler', () => {
         "SELECT count(*) FROM Transaction WHERE entity.name = 'my-svc'"
       );
       assertValidDql(result);
-      expect(codeLines(result.dql)).toContain('dt.entity.name');
+      expect(codeLines(result.dql)).toContain('service.name');
+      expect(codeLines(result.dql)).not.toContain('dt.entity');
     });
 
     it('should handle percentage simple (no nested agg)', () => {
@@ -2395,7 +2400,7 @@ describe('NRQLCompiler', () => {
       );
       expect(result.success).toBe(true);
       expect(result.dql).toContain('countIf(');
-      expect(result.dql).toContain('error == true');
+      expect(result.dql).toContain('request.is_failed == true');
     });
 
     it('should convert sum with filter to sumIf', () => {
@@ -2477,6 +2482,54 @@ describe('NRQLCompiler', () => {
       expect(m).not.toBeNull();
       const metricIdent = (m![1] as string).trim();
       expect(metricIdent).toMatch(/^[a-zA-Z][\w.]*$/);
+    });
+  });
+
+  // -------------------------------------------------------------------------
+  // Live-validated field mapping (Python TestLiveValidatedFieldMapping, D10/D12/D13)
+  // -------------------------------------------------------------------------
+  describe('Live-validated field mapping', () => {
+    it('span service is dt.service.name', () => {
+      const result = compiler.compile(
+        "SELECT count(*) FROM Transaction WHERE appName = 'checkout' FACET entityName",
+      );
+      const code = codeLines(result.dql);
+      expect(code).toContain('dt.service.name == "checkout"');
+      expect(code).toContain('by: {dt.service.name}');
+      expect(code).not.toContain(' service.name');
+    });
+
+    it('log service stays service.name', () => {
+      const result = compiler.compile("SELECT count(*) FROM Log WHERE appName = 'checkout'");
+      expect(codeLines(result.dql)).toContain('service.name == "checkout"');
+      expect(codeLines(result.dql)).not.toContain('dt.service.name');
+    });
+
+    it('span error uses request.is_failed', () => {
+      let code = codeLines(compiler.compile('SELECT count(*) FROM Transaction WHERE error IS TRUE').dql);
+      expect(code).toContain('request.is_failed == true');
+      code = codeLines(compiler.compile('SELECT count(*) FROM Transaction WHERE error IS NULL').dql);
+      expect(code).toContain('request.is_failed != true');
+      expect(code).not.toContain('isNull(');
+    });
+
+    it('mixed AND/OR keeps parentheses', () => {
+      const code = codeLines(
+        compiler.compile(
+          "SELECT count(*) FROM Transaction WHERE (appName = 'a' OR appName = 'b') AND duration > 1",
+        ).dql,
+      );
+      expect(code).toContain('(dt.service.name == "a" or dt.service.name == "b") and duration > 1');
+    });
+
+    it('same-operator chain has no extra parentheses', () => {
+      const code = codeLines(
+        compiler.compile(
+          "SELECT count(*) FROM Transaction WHERE appName = 'a' OR appName = 'b' OR appName = 'c'",
+        ).dql,
+      );
+      const filterLine = (code.split('| filter')[1] ?? '').split('\n')[0] ?? '';
+      expect(filterLine.replace('count()', '')).not.toContain('(');
     });
   });
 });

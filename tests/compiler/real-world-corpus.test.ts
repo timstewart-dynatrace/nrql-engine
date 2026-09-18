@@ -47,7 +47,7 @@ const CORPUS: CorpusEntry[] = [
   {
     area: 'apm',
     nrql: 'SELECT count(*) FROM TransactionError',
-    expectDqlIncludes: ['fetch spans', 'otel.status_code == "ERROR"'],
+    expectDqlIncludes: ['fetch spans', 'request.is_failed == true'],
   },
   {
     area: 'apm',
@@ -149,7 +149,7 @@ const CORPUS: CorpusEntry[] = [
   {
     area: 'operators',
     nrql: "SELECT count(*) FROM Transaction WHERE appName IN ('a', 'b', 'c')",
-    expectDqlIncludes: ['in(service.name'],
+    expectDqlIncludes: ['in(dt.service.name'],
   },
   {
     area: 'operators',
@@ -159,7 +159,7 @@ const CORPUS: CorpusEntry[] = [
   {
     area: 'operators',
     nrql: 'SELECT count(*) FROM Transaction WHERE appName IS NOT NULL',
-    expectDqlIncludes: ['isNotNull(service.name'],
+    expectDqlIncludes: ['isNotNull(dt.service.name'],
   },
 ];
 

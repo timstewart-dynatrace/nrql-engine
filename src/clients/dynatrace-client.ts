@@ -8,6 +8,12 @@
 import axios, { type AxiosInstance } from 'axios';
 import pino from 'pino';
 
+import { settingsV2Base, tokenAuthHeader } from './http-transport.js';
+import {
+  DAVIS_ANOMALY_DETECTOR_SCHEMA_ID,
+  withDetectorActor,
+} from '../transformers/detector-utils.js';
+
 const logger = pino({ name: 'dynatrace-client' });
 
 // ---------------------------------------------------------------------------
@@ -65,24 +71,31 @@ export class DynatraceClient {
   private readonly apiV2: string;
   private readonly configApi: string;
   private readonly http: AxiosInstance;
+  /** Service-user UUID injected as detector `executionSettings.actor` (D16). */
+  readonly detectorActor: string | undefined;
 
   constructor(options: {
     apiToken: string;
     environmentUrl: string;
     rateLimit?: number;
+    /** Service-user UUID Davis anomaly detectors execute as (DYNATRACE_DETECTOR_ACTOR). */
+    detectorActor?: string;
   }) {
     this.apiToken = options.apiToken;
+    this.detectorActor = options.detectorActor || undefined;
     this.environmentUrl = options.environmentUrl.replace(/\/+$/, '');
     this.rateLimit = options.rateLimit ?? 5.0;
 
-    this.apiV2 = `${this.environmentUrl}/api/v2`;
+    // Gen3 (.apps.) tenants serve the classic v2 API under /platform/classic/environment-api/v2.
+    this.apiV2 = settingsV2Base(this.environmentUrl);
     this.configApi = `${this.environmentUrl}/api/config/v1`;
 
     this.http = axios.create({
       timeout: 60_000,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Api-Token ${this.apiToken}`,
+        // Scheme by token prefix: dt0c01 -> Api-Token, dt0s01/dt0s16 -> Bearer.
+        Authorization: tokenAuthHeader(this.apiToken),
       },
     });
   }
@@ -386,6 +399,56 @@ export class DynatraceClient {
   // =========================================================================
   // Alerting / Metric Events Methods
   // =========================================================================
+
+  /**
+   * Create a `builtin:davis.anomaly-detectors` object from a transformer
+   * envelope, injecting `executionSettings.actor` (D16). Fails fast without
+   * an HTTP call when no actor is configured.
+   */
+  async createAnomalyDetector(envelope: {
+    readonly schemaId?: string;
+    readonly scope?: string;
+    readonly value?: unknown;
+  }): Promise<ImportResult> {
+    const value = (envelope.value as Record<string, unknown> | undefined) ?? {};
+    const title = (value['title'] as string | undefined) || 'Unknown';
+    const existing = (value['executionSettings'] as Record<string, unknown> | undefined)?.['actor'];
+    const actor = (typeof existing === 'string' && existing) || this.detectorActor;
+    if (!actor) {
+      return {
+        entityType: 'anomaly_detector',
+        entityName: title,
+        success: false,
+        errorMessage:
+          'DYNATRACE_DETECTOR_ACTOR is not set. builtin:davis.anomaly-detectors ' +
+          'requires executionSettings.actor = the UUID of a service user on the tenant.',
+      };
+    }
+    const withActor = withDetectorActor(
+      { ...envelope, schemaId: envelope.schemaId ?? DAVIS_ANOMALY_DETECTOR_SCHEMA_ID },
+      actor,
+    );
+    const response = await this.createSettingsObject(
+      withActor.schemaId,
+      withActor.value as Record<string, unknown>,
+      envelope.scope ?? 'environment',
+    );
+    const created = response.data as Record<string, unknown>[] | undefined;
+    if (response.isSuccess && Array.isArray(created) && created.length > 0) {
+      return {
+        entityType: 'anomaly_detector',
+        entityName: title,
+        success: true,
+        dynatraceId: created[0]?.['objectId'] as string | undefined,
+      };
+    }
+    return {
+      entityType: 'anomaly_detector',
+      entityName: title,
+      success: false,
+      errorMessage: response.error,
+    };
+  }
 
   async createMetricEvent(metricEvent: Record<string, unknown>): Promise<ImportResult> {
     const schemaId = 'builtin:anomaly-detection.metric-events';

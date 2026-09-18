@@ -13,28 +13,28 @@ describe('AIOpsTransformer', () => {
     expect(result.success).toBe(false);
   });
 
-  it('should emit workflow with davis_problem trigger', () => {
+  it('should emit workflow with davis-problem trigger matching every migrated detector', () => {
     const result = transformer.transform({ name: 'Critical Routing', enabled: true });
     expect(result.success).toBe(true);
-    expect(result.data!.workflow.title).toContain('[Migrated AIOps]');
-    expect(result.data!.workflow.trigger.event.active).toBe(true);
-    expect(result.data!.workflow.trigger.event.config.davisProblem.minSeverity).toBe('ALL');
+    const wf = result.data!.workflow;
+    expect(wf.title).toContain('[Migrated AIOps]');
+    expect(wf.trigger.eventTrigger.isActive).toBe(true);
+    const config = wf.trigger.eventTrigger.triggerConfiguration;
+    expect(config.type).toBe('davis-problem');
+    expect(config.value.customFilter).toBe('matchesValue(event.name, "[Migrated] *")');
+    expect(Object.values(config.value.categories).every(Boolean)).toBe(true);
+    expect(Object.keys(wf).sort()).toEqual(['description', 'isPrivate', 'tasks', 'title', 'trigger']);
   });
 
-  it('should map priority to minSeverity', () => {
+  it('should warn that issue priority has no trigger equivalent', () => {
     const critical = transformer.transform({
       name: 'C',
       issuesFilter: { priority: 'CRITICAL' },
     });
-    expect(critical.data!.workflow.trigger.event.config.davisProblem.minSeverity).toBe('ERROR');
-
-    const medium = transformer.transform({
-      name: 'M',
-      issuesFilter: { priority: 'MEDIUM' },
-    });
-    expect(medium.data!.workflow.trigger.event.config.davisProblem.minSeverity).toBe(
-      'PERFORMANCE',
-    );
+    expect(critical.warnings.some((w) => w.includes("priority 'CRITICAL'"))).toBe(true);
+    expect(
+      Object.values(critical.data!.workflow.trigger.eventTrigger.triggerConfiguration.value.categories).every(Boolean),
+    ).toBe(true);
   });
 
   it('should pass entity tag filters through to the trigger', () => {
@@ -42,7 +42,7 @@ describe('AIOpsTransformer', () => {
       name: 'W',
       issuesFilter: { entityTags: { env: 'prod', team: 'platform' } },
     });
-    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTags).toEqual({
+    expect(result.data!.workflow.trigger.eventTrigger.triggerConfiguration.value.entityTags).toEqual({
       env: 'prod',
       team: 'platform',
     });
@@ -53,11 +53,13 @@ describe('AIOpsTransformer', () => {
       name: 'W',
       enrichments: [{ name: 'Error context', nrql: 'SELECT count(*) FROM TransactionError' }],
     });
-    expect(result.data!.workflow.tasks).toHaveLength(1);
-    expect(result.data!.workflow.tasks[0]!.action).toBe('dynatrace.automations:run-query');
-    expect(result.data!.workflow.tasks[0]!.input.query).toContain('fetch spans');
-    expect(result.data!.workflow.tasks[0]!.input.query).not.toContain('TODO');
-    expect(result.data!.workflow.tasks[0]!.description).toMatch(/confidence: (HIGH|MEDIUM)/);
+    const tasks = Object.values(result.data!.workflow.tasks);
+    expect(Array.isArray(result.data!.workflow.tasks)).toBe(false);
+    expect(Object.keys(result.data!.workflow.tasks)).toEqual(['error_context']);
+    expect(tasks[0]!.action).toBe('dynatrace.automations:execute-dql-query');
+    expect(tasks[0]!.input.query).toContain('fetch spans');
+    expect(tasks[0]!.input.query).not.toContain('TODO');
+    expect(tasks[0]!.description).toMatch(/confidence: (HIGH|MEDIUM)/);
   });
 
   it('should emit a placeholder when enrichment NRQL is empty', () => {
@@ -65,8 +67,19 @@ describe('AIOpsTransformer', () => {
       name: 'W',
       enrichments: [{ name: 'Empty', nrql: '' }],
     });
-    expect(result.data!.workflow.tasks[0]!.input.query).toBe('fetch events, from:-1h');
+    expect(Object.values(result.data!.workflow.tasks)[0]!.input.query).toBe('// TODO: add enrichment DQL');
     expect(result.warnings.some((w) => w.includes('Empty enrichment'))).toBe(true);
+  });
+
+  it('should never embed raw NRQL in an enrichment task (D15)', () => {
+    const nrql = 'SELECT FROM WHERE ((( nonsense';
+    const result = transformer.transform({ name: 'W', enrichments: [{ name: 'Bad', nrql }] });
+    expect(Object.values(result.data!.workflow.tasks)[0]!.input.query).toBe(
+      `// UNCONVERTED NRQL: ${nrql}\n// TODO: rewrite as DQL`,
+    );
+    expect(
+      result.warnings.some((w) => w.includes('AIOps enrichment NRQL could not be converted to DQL: ')),
+    ).toBe(true);
   });
 
   it('should emit notification task stubs per destination', () => {
@@ -77,9 +90,10 @@ describe('AIOpsTransformer', () => {
         { channelType: 'pagerduty', name: 'On call' },
       ],
     });
-    expect(result.data!.workflow.notificationTaskStubs).toHaveLength(2);
-    expect(result.data!.workflow.notificationTaskStubs[0]!.channelType).toBe('SLACK');
-    expect(result.data!.workflow.notificationTaskStubs[0]!.taskName).toBe('prod_alerts');
+    expect(result.data!.notificationTaskStubs).toHaveLength(2);
+    expect(result.data!.notificationTaskStubs[0]!.channelType).toBe('SLACK');
+    expect(result.data!.notificationTaskStubs[0]!.taskName).toBe('prod_alerts');
+    expect(result.data!.workflow).not.toHaveProperty('notificationTaskStubs');
   });
 
   it('should preserve muting rules as DQL comments', () => {
@@ -89,7 +103,7 @@ describe('AIOpsTransformer', () => {
         { nrql: "env = 'staging'", description: 'Silence staging noise' },
       ],
     });
-    expect(result.data!.workflow.mutingRuleDql[0]).toContain('Silence staging noise');
+    expect(result.data!.mutingRuleDql[0]).toContain('Silence staging noise');
   });
 });
 
@@ -113,7 +127,7 @@ describe('AIOpsTransformer v2', () => {
     });
     expect(result.success).toBe(true);
     expect(result.data!.workflow.title).toContain('[Migrated AIOps v2]');
-    expect(result.data!.workflow.trigger.event.active).toBe(true);
+    expect(result.data!.workflow.trigger.eventTrigger.isActive).toBe(true);
   });
 
   it('should disable the workflow when either enable flag is false', () => {
@@ -122,14 +136,14 @@ describe('AIOpsTransformer v2', () => {
       workflowEnabled: false,
       destinationsEnabled: true,
     });
-    expect(r1.data!.workflow.trigger.event.active).toBe(false);
+    expect(r1.data!.workflow.trigger.eventTrigger.isActive).toBe(false);
 
     const r2 = transformer.transformV2({
       name: 'W',
       workflowEnabled: true,
       destinationsEnabled: false,
     });
-    expect(r2.data!.workflow.trigger.event.active).toBe(false);
+    expect(r2.data!.workflow.trigger.eventTrigger.isActive).toBe(false);
   });
 
   it('should derive entityTags from labels/tags predicates', () => {
@@ -142,30 +156,20 @@ describe('AIOpsTransformer v2', () => {
         ],
       },
     });
-    expect(result.data!.workflow.trigger.event.config.davisProblem.entityTags).toEqual({
+    expect(result.data!.workflow.trigger.eventTrigger.triggerConfiguration.value.entityTags).toEqual({
       env: 'prod',
       team: 'payments',
     });
   });
 
-  it('should derive minSeverity from priority predicate', () => {
+  it('should warn that a priority predicate has no trigger equivalent', () => {
     const crit = transformer.transformV2({
       name: 'C',
       issuesFilter: {
         predicates: [{ attribute: 'priority', operator: 'EQUAL', values: ['CRITICAL'] }],
       },
     });
-    expect(crit.data!.workflow.trigger.event.config.davisProblem.minSeverity).toBe('ERROR');
-
-    const medium = transformer.transformV2({
-      name: 'M',
-      issuesFilter: {
-        predicates: [{ attribute: 'priority', operator: 'EQUAL', values: ['MEDIUM'] }],
-      },
-    });
-    expect(medium.data!.workflow.trigger.event.config.davisProblem.minSeverity).toBe(
-      'PERFORMANCE',
-    );
+    expect(crit.warnings.some((w) => w.includes("priority 'CRITICAL'"))).toBe(true);
   });
 
   it('should warn on unsupported predicate attributes', () => {
@@ -189,10 +193,11 @@ describe('AIOpsTransformer v2', () => {
         ],
       },
     });
-    expect(result.data!.workflow.tasks).toHaveLength(1);
-    expect(result.data!.workflow.tasks[0]!.input.query).toContain('fetch spans');
-    expect(result.data!.workflow.tasks[0]!.input.query).not.toContain('TODO');
-    expect(result.data!.workflow.tasks[0]!.description).toMatch(/confidence/);
+    const tasks = Object.values(result.data!.workflow.tasks);
+    expect(tasks).toHaveLength(1);
+    expect(tasks[0]!.input.query).toContain('fetch spans');
+    expect(tasks[0]!.input.query).not.toContain('TODO');
+    expect(tasks[0]!.description).toMatch(/confidence/);
   });
 
   it('should warn on dashboard enrichments (must be re-linked post-migration)', () => {
@@ -210,7 +215,7 @@ describe('AIOpsTransformer v2', () => {
       name: 'W',
       mutingRulesHandling: 'DONT_NOTIFY_FULLY_OR_PARTIALLY_MUTED_ISSUES',
     });
-    expect(result.data!.workflow.mutingRuleDql[0]).toContain(
+    expect(result.data!.mutingRuleDql[0]).toContain(
       'DONT_NOTIFY_FULLY_OR_PARTIALLY_MUTED_ISSUES',
     );
     expect(result.warnings.some((w) => w.includes('partial'))).toBe(
@@ -231,9 +236,10 @@ describe('AIOpsTransformer v2', () => {
         { channelId: 'c2', channelType: 'pagerduty', name: 'On call' },
       ],
     });
-    expect(result.data!.workflow.notificationTaskStubs).toHaveLength(2);
-    expect(result.data!.workflow.notificationTaskStubs[0]!.channelType).toBe('SLACK');
-    expect(result.data!.workflow.notificationTaskStubs[0]!.taskName).toBe('prod_alerts');
+    expect(result.data!.notificationTaskStubs).toHaveLength(2);
+    expect(result.data!.notificationTaskStubs[0]!.channelType).toBe('SLACK');
+    expect(result.data!.notificationTaskStubs[0]!.taskName).toBe('prod_alerts');
+    expect(result.data!.workflow).not.toHaveProperty('notificationTaskStubs');
   });
 
   it('should batch via transformAllV2', () => {

@@ -9,7 +9,7 @@
  *      so it surfaces at the top of the Services app.
  *   2. Emit an SLO (`builtin:monitoring.slo`) bound to that entity's
  *      response-time / apdex signal using the NR threshold + window.
- *   3. Emit a companion Workflow (davis_problem trigger) that fires when
+ *   3. Emit a companion Workflow (`davis-problem` trigger) that fires when
  *      the SLO's burn-rate crosses threshold, tagged with
  *      `nr-migrated=<slug>` so NotificationTransformer output can slot
  *      into it later.
@@ -17,7 +17,12 @@
 
 import type { TransformResult } from './types.js';
 import { success, failure } from './types.js';
-import type { DTWorkflow } from './alert.transformer.js';
+import { placeholderTask } from './alert.transformer.js';
+import {
+  davisProblemTrigger,
+  tasksListToDict,
+  type DTDavisProblemWorkflow,
+} from './workflow-utils.js';
 
 // ---------------------------------------------------------------------------
 // Input
@@ -58,7 +63,7 @@ export interface DTKeyTxSlo {
 export interface KeyTransactionTransformData {
   readonly criticalServiceTag: DTCriticalServiceTag;
   readonly slo: DTKeyTxSlo;
-  readonly workflow: DTWorkflow;
+  readonly workflow: DTDavisProblemWorkflow;
   readonly manualSteps: string[];
 }
 
@@ -72,7 +77,7 @@ function slug(s: string): string {
 
 const MANUAL_STEPS: string[] = [
   'Review the emitted SLO target — it is derived from NR Apdex T-value or response-time threshold; some key transactions may need a custom DQL expression beyond `builtin:service.response.time`.',
-  'Wire NotificationTransformer output into the emitted Workflow.tasks array so SLO burn-rate problems route to on-call.',
+  'Wire NotificationTransformer output into the emitted Workflow.tasks dict so SLO burn-rate problems route to on-call.',
   'If the key transaction covered a specific endpoint (not whole service), narrow the SLO filter via an additional entityName(…) clause.',
 ];
 
@@ -126,30 +131,20 @@ export class KeyTransactionTransformer {
         filter: sloFilter,
       };
 
-      const workflow: DTWorkflow = {
+      const workflow: DTDavisProblemWorkflow = {
         title: `[Migrated KeyTx] ${name}`,
         description: `Fires when the SLO for key transaction '${name}' burns budget.`,
         isPrivate: false,
-        trigger: {
-          event: {
-            active: input.enabled ?? true,
-            config: {
-              davisProblem: {
-                categories: {
-                  availability: true,
-                  error: true,
-                  slowdown: true,
-                  resource: false,
-                  custom: false,
-                  monitoringUnavailable: false,
-                },
-                entityTags: { 'nr-migrated': tag, 'critical-service': tag },
-                entityTagsMatch: 'all',
-              },
-            },
-          },
-        },
-        tasks: [],
+        trigger: davisProblemTrigger('', {
+          entityTags: { 'nr-migrated': tag, 'critical-service': tag },
+          active: input.enabled ?? true,
+        }),
+        // Gen3 Automation API requires `tasks` as a dict keyed by task id.
+        tasks: tasksListToDict([
+          placeholderTask(
+            'Attach notification tasks (email / slack / pagerduty) using NotificationTransformer-emitted task nodes.',
+          ),
+        ]),
       };
 
       return success(

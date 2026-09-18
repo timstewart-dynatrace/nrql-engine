@@ -7,6 +7,12 @@
  */
 
 import { NRQLCompiler } from '../compiler/compiler.js';
+import {
+  CLASSIC_TO_SMARTSCAPE,
+  MULTI_TARGET,
+  REMOVED_GROUP_TYPES,
+  smartscapeField,
+} from './smartscape-map.js';
 
 // ---------------------------------------------------------------------------
 // Standalone helper
@@ -61,6 +67,7 @@ export class DQLFixer {
     dql = this.fixDurationUnits(dql);
     dql = this.fixNegationToFilterout(dql);
     dql = this.fixArrayCountWithoutExpand(dql);
+    dql = this.fixClassicEntityReferences(dql);
     dql = this.fixWhitespace(dql);
 
     return [dql, this.fixes];
@@ -758,7 +765,7 @@ export class DQLFixer {
       Span: 'spans',
       Transaction: 'spans',
       Log: 'logs',
-      SystemSample: 'dt.entity.host',
+      SystemSample: 'smartscapeNodes HOST',
     };
 
     const convertSubquery = (
@@ -779,7 +786,7 @@ export class DQLFixer {
       }
 
       const lookupDql =
-        `lookup [fetch ${dtSource}${subFilter} ` +
+        `lookup [${dtSource.startsWith('smartscapeNodes') ? dtSource : `fetch ${dtSource}`}${subFilter} ` +
         `| fields ${selectField}], ` +
         `sourceField:${field}, lookupField:${selectField}, prefix:"sub."`;
 
@@ -911,6 +918,7 @@ export class DQLFixer {
     const arrayFields = [
       'affected_entity_ids',
       'affected_entities',
+      'smartscape.affected_entities',
       'tags',
       'management_zones',
       'entity.detected_name',
@@ -940,6 +948,118 @@ export class DQLFixer {
     }
 
     return dql;
+  }
+
+  /**
+   * Rewrite deprecated classic-entity DQL to Smartscape.
+   *
+   * 1:1 mappings are rewritten; 1:N types, removed group types, unknown types,
+   * `classicEntitySelector` and `entityAttr` get a `// NOTE:` for review.
+   * Comment lines are left untouched. Mirrors Python
+   * `_fix_classic_entity_references`.
+   */
+  private fixClassicEntityReferences(dql: string): string {
+    const lines = dql.split('\n');
+    const codeIdx: number[] = [];
+    lines.forEach((ln, i) => {
+      if (!ln.trimStart().startsWith('//')) codeIdx.push(i);
+    });
+    const code = codeIdx.map((i) => lines[i] ?? '').join('\n');
+    if (!/dt\.entity\.|entityName\(|entityAttr\(|classicEntitySelector/.test(code)) {
+      return dql;
+    }
+
+    const notes: string[] = [];
+    const isEntityList = /^\s*fetch\s+dt\.entity\./.test(code);
+    let newCode = code;
+
+    // classicEntitySelector() yields classic IDs, so rewriting the field beside it
+    // would silently break the filter. Leave such queries as-is and only annotate.
+    if (!code.includes('classicEntitySelector')) {
+      newCode = newCode.replace(/\bfetch\s+dt\.entity\.([a-z][a-z0-9_]*)\b/g, (m, t: string) => {
+        const target = CLASSIC_TO_SMARTSCAPE[t];
+        if (!target) return m;
+        this.fixes.push(`fetch dt.entity.${t} -> smartscapeNodes ${target[1]}`);
+        return `smartscapeNodes ${target[1]}`;
+      });
+      if (isEntityList && newCode !== code) {
+        newCode = newCode.replace(/(?<![\w.`])entity\.name\b/g, 'name');
+      }
+      newCode = newCode.replace(
+        /\bdt\.entity\.([a-z][a-z0-9_]*)(\s*(?:==|!=)\s*)"([A-Z][A-Z0-9_]*-[0-9A-F]{16})"/g,
+        (m, t: string, op: string, id: string) => {
+          const field = smartscapeField(t);
+          return field ? `${field}${op}toSmartscapeId("${id}")` : m;
+        },
+      );
+      newCode = newCode.replace(
+        /\bentityName\(\s*dt\.(entity|smartscape)\.([a-z][a-z0-9_.]*)\s*\)/g,
+        (m, ns: string, t: string) => {
+          const field = ns === 'entity' ? smartscapeField(t) : `dt.smartscape.${t}`;
+          if (!field) return m;
+          this.fixes.push(`entityName(dt.${ns}.${t}) -> getNodeName(${field})`);
+          return `getNodeName(${field})`;
+        },
+      );
+      newCode = newCode.replace(/\bdt\.entity\.([a-z][a-z0-9_]*)\b/g, (m, t: string) => {
+        const field = smartscapeField(t);
+        if (!field) return m;
+        this.fixes.push(`dt.entity.${t} -> ${field}`);
+        return field;
+      });
+    }
+    if (newCode.includes('toSmartscapeId(') && !code.includes('toSmartscapeId(')) {
+      notes.push(
+        '// NOTE: classic entity IDs wrapped in toSmartscapeId(); verify they resolve ' +
+          '(IDs do not always carry over)',
+      );
+    }
+
+    const remaining = [
+      ...new Set([...newCode.matchAll(/\bdt\.entity\.([a-z][a-z0-9_]*)\b/g)].map((m) => m[1] ?? '')),
+    ].sort();
+    for (const classic of remaining) {
+      if (MULTI_TARGET[classic] !== undefined) {
+        notes.push(
+          `// NOTE: dt.entity.${classic} maps to several Smartscape types ` +
+            `(${MULTI_TARGET[classic]}); rewrite manually`,
+        );
+      } else if (REMOVED_GROUP_TYPES.has(classic)) {
+        notes.push(
+          `// NOTE: dt.entity.${classic} has no Smartscape entity; use its fields on ` +
+            'HOST / PROCESS / CONTAINER',
+        );
+      } else if (CLASSIC_TO_SMARTSCAPE[classic] === undefined) {
+        notes.push(
+          `// NOTE: dt.entity.${classic} is deprecated and has no confirmed ` +
+            'Smartscape mapping; review manually',
+        );
+      }
+    }
+    if (newCode.includes('classicEntitySelector')) {
+      notes.push(
+        '// NOTE: classicEntitySelector is deprecated; filter on raw dimensions or ' +
+          'use smartscapeNodes + traverse',
+      );
+    }
+    if (newCode.includes('entityAttr(')) {
+      notes.push('// NOTE: entityAttr() is deprecated; use getNodeField(id, "field") or a node field');
+    }
+    if (/\bentityName\(/.test(newCode)) {
+      notes.push('// NOTE: entityName() is deprecated; use getNodeName(id) or name');
+    }
+
+    const newNotes = notes.filter((n) => !dql.includes(n));
+    if (newCode === code && newNotes.length === 0) return dql;
+
+    const newCodeLines = newCode.split('\n');
+    codeIdx.forEach((lineIdx, pos) => {
+      lines[lineIdx] = newCodeLines[pos] ?? '';
+    });
+    for (const note of newNotes) this.fixes.push(note.slice('// NOTE: '.length));
+    const insertAt = codeIdx.length > 0 ? (codeIdx[0] ?? lines.length) : lines.length;
+    lines.splice(insertAt, 0, ...newNotes);
+    return lines.join('\n');
   }
 
   /**

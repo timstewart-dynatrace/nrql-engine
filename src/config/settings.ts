@@ -29,6 +29,17 @@ const DynatraceConfigSchema = z.object({
     .string()
     .min(1, 'DYNATRACE_ENVIRONMENT_URL is required')
     .transform((v) => v.replace(/\/+$/, '')),
+  /**
+   * Service-user UUID that Davis anomaly detectors execute as
+   * (`builtin:davis.anomaly-detectors` executionSettings.actor is required — D16).
+   */
+  detectorActor: z
+    .string()
+    .regex(
+      /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/,
+      'DYNATRACE_DETECTOR_ACTOR must be a service-user UUID',
+    )
+    .optional(),
 });
 
 const MigrationConfigSchema = z.object({
@@ -134,6 +145,7 @@ class Settings implements SettingsData {
     this.dynatrace = DynatraceConfigSchema.parse({
       apiToken: process.env['DYNATRACE_API_TOKEN'] ?? '',
       environmentUrl: process.env['DYNATRACE_ENVIRONMENT_URL'] ?? '',
+      detectorActor: process.env['DYNATRACE_DETECTOR_ACTOR'] || undefined,
     });
 
     this.migration = MigrationConfigSchema.parse({
