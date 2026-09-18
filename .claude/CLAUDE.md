@@ -77,24 +77,25 @@ See `.claude/DECISIONS.md` for architectural decisions and rationale.
 
 ### Always active — core compiler + API skills
 
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-dql/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/nrql-to-dql/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-apis/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-document-api/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-monaco/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-terraform/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/.agents/skills/dt-dql-essentials/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-dql-examples/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/nrql-to-dql/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-apis/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-document-api/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-monaco/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-terraform/SKILL.md
 
 ### Always active — transformer domain skills
 
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-iam/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-entity-tagging/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-alert-routing/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-lookup-tables/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/k8s-dynatrace-operator/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-account-management/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-notebook-authoring/SKILL.md
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/dynatrace-workflow/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-iam/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-entity-tagging/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-alert-routing/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-lookup-tables/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/k8s-dynatrace-operator/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-account-management/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-notebook-authoring/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/dynatrace-workflow/SKILL.md
 
 ### Always active — documentation + graphics skills
 
-@/Users/Shared/GitHub/PROJECTS/VisualCode-AI-Template/SKILLS/svg-graphics/SKILL.md
+@/Users/Shared/GitHub/PROJECTS/CLAUDE/Claude-AI-Template/SKILLS/svg-graphics/SKILL.md
