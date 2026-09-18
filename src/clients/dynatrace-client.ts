@@ -765,7 +765,7 @@ export class DynatraceClient {
       metadata: {
         environmentUrl: this.environmentUrl,
         backupTimestamp: new Date().toISOString(),
-        toolVersion: '1.0.0',
+        toolVersion: '2.0.0',
       },
       dashboards: await this.getAllDashboards(),
       slos: await this.getAllSlos(),
